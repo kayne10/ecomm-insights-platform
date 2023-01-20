@@ -1,2 +1,5 @@
 #!/bin/bash
+
+# consider more commands for this script such as [start,stop]
+
 python3 hose.py >> log/orders.log | tail -f log/orders.log

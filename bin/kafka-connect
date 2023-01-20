@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# consider more commands for this executable such as [create-sources, create-sinks, create-topics, update-all, delete-sources, delete-sinks]
+
 CMD="$1"
 
 BASE_PATH="${PWD}/kafka/connectors/"
