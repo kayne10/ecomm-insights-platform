@@ -23,6 +23,8 @@ customer_ids = [
 ]
 
 
+#TODO(): order ids must be unique. modify function to do so.
+
 def make_orderitems():
     order_id = str(uuid4())
     seller_id = random.choice(seller_ids)
@@ -48,7 +50,7 @@ def make_orderitems():
 
     return order_items
 
-
+#TODO(): utilize args to start and stop stream on command
 def main():
     is_streaming = True
     start_time = time.time()
