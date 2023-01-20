@@ -1,0 +1,59 @@
+version: '2'
+
+services:
+  # this is our kafka cluster.
+  kafka-cluster:
+    image: landoop/fast-data-dev:latest
+    environment:
+      ADV_HOST: 127.0.0.1         # Change to 192.168.99.100 if using Docker Toolbox
+      RUNTESTS: 0                 # Disable Running tests so the cluster starts faster
+    ports:
+      - 2181:2181                 # Zookeeper
+      - 3030:3030                 # Landoop UI
+      - 8081-8083:8081-8083       # REST Proxy, Schema Registry, Kafka Connect ports
+      - 9581-9585:9581-9585       # JMX Ports
+      - 9092:9092                 # Kafka Broker
+    volumes:
+      - ${PWD}/log:/var/log/streams
+
+  # we will use elasticsearch as one of our sinks.
+  # This configuration allows you to start elasticsearch
+  elasticsearch:
+    # image: itzg/elasticsearch:2.4.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.16.1
+    container_name: elasticsearch
+    environment:
+      # PLUGINS: appbaseio/dejavu
+      # OPTS: -Dindex.number_of_shards=1 -Dindex.number_of_replicas=0
+      - "ES_JAVA_OPTS=-Xms400m -Xmx400m"
+      - discovery.type=single-node
+      - xpack.security.enabled:false
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f -XGET 'localhost:9200/_cluster/health?wait_for_yellow&timeout=1s'"
+        ]
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - 9200:9200
+      - 9300:9300
+    volumes: 
+      - es-data:/usr/share/elasticsearch
+
+  # we will use postgres as one of our sinks.
+  # This configuration allows you to start postgres
+  postgres:
+    image: postgres:9.5-alpine
+    environment:
+      POSTGRES_USER: postgres     # define credentials
+      POSTGRES_PASSWORD: postgres # define credentials
+      POSTGRES_DB: postgres       # define database
+    ports:
+      - 5432:5432                 # Postgres port
+
+volumes:
+  es-data: {}

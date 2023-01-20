@@ -1,0 +1,15 @@
+{
+    "name": "sink_orders_es",
+    "config": {
+        "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+        "tasks.max": "2",
+        "topics": "ecommerce-orders",
+        "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "value.converter":"org.apache.kafka.connect.json.JsonConverter",
+        "connection.url": "http://elasticsearch:9200",
+        "batch.size": "2000",
+        "type.name": "kafka-connect",
+        "key.ignore": "true",
+        "schema.ignore": "true"
+    }
+}

@@ -1,0 +1,37 @@
+#!/bin/bash
+
+CMD="$1"
+
+BASE_PATH="${PWD}/kafka/connectors/"
+ENDPOINT="http://localhost:8083"
+
+create_connectors() {}
+
+case $CMD in
+    source)
+	echo "Creating kafka-connect source connectors"
+	find "${BASE_PATH}/source" -name "*.json" -print0 | while read -d $'\0' connector; do
+	    NAME=$(jq -r '.name' $connector)
+	    CONFIG=$(jc -r '.config $connector')
+	    curl -s -X PUT "${ENDPOINT}/connectors/${NAME}/config" \
+		-H 'Accept: application/json' \
+		-H 'Content-Type: application/json' \
+		-d "$CONFIG"
+	done
+	;;
+    sink)
+	echo "Creating kafka-connect sink connectors"
+	find "${BASE_PATH}/sink" -name "*.json" -print0 | while read -d $'\0' connector; do
+	    NAME=$(jq -r '.name' $connector)
+            CONFIG=$(jc -r '.config $connector')
+            curl -s -X PUT "${ENDPOINT}/connectors/${NAME}/config" \
+                -H 'Accept: application/json' \
+                -H 'Content-Type: application/json' \
+                -d "$CONFIG"
+        done
+	;;
+    *)
+	echo "Command not found. Options are [source,sink]"
+	exec "$@"
+	;;
+esac
