@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# consider commands for mappings / index templates / ilm
+# such as [create-mappings, create-ilm, delete-mappings, delete-ilm]
