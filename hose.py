@@ -16,32 +16,27 @@ products = [
     Product('A0004', 'Hand Soap', 1.99)
 ]
 
-seller_ids = ['abc', 'xyz', 'jkq', 'wrp']
 customer_ids = [
     "C1000", "C1001", "C1002", "C1003", "C1004", "C1005", "C1006", "C1007", "C1008", "C1009",
     "C1010", "C1011", "C1012", "C1013", "C1014", "C1015", "C1016", "C1017", "C1018", "C1019",
 ]
 
 
-#TODO(): order ids must be unique. modify function to do so.
-
 def make_orderitems():
-    order_id = str(uuid4())
-    seller_id = random.choice(seller_ids)
-    customer_id = random.choice(customer_ids)
-    order_items = []
-
+    """
+    Generate random order items in cart
+    
+    Returns: cart (list of dicts)
+    """
     available_products = copy.copy(products)
-    n_products = random.randint(1, len(products))
-    for _ in range(n_products):
+    n_products = len(products)
+    order_items = []
+    for _ in range(random.randint(1,n_products)):
         product = random.choice(available_products)
         available_products.remove(product)
         qty = random.randint(1, 10)
-
+        
         order_items.append({
-            'customer_id': customer_id,
-            'order_id': order_id,
-            'seller_id': seller_id,
             'product_name': product.name,
             'product_code': product.code,
             'product_quantity': qty,
@@ -50,27 +45,20 @@ def make_orderitems():
 
     return order_items
 
-#TODO(): utilize args to start and stop stream on command
-def main():
-    is_streaming = True
-    start_time = time.time()
-    while is_streaming:
-        # Generate fake order data
-        items = make_orderitems()
-        for item in items:
-            
-            try:
-                # output message
-                print(item)
 
-            except Exception as e:
-                print({
-                    'message': 'Error producing records',
-                    'error': str(e),
-                    'data_record': item
-                }).encode('utf-8')
-        stopwatch = time.time() - start_time
+def main():
+    start_time = time.time()
+    is_streaming = True
+    while is_streaming:
+        # Generate orders
+        order = json.dumps({
+            "order_id": str(uuid4()),
+            "customer_id": random.choice(customer_ids),
+            "cart": make_orderitems()
+        })
+        print(order)
         time.sleep(0.3)
+        stopwatch = time.time() - start_time
         if stopwatch >= 60:
             is_streaming = False
 
