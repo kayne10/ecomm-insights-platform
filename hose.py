@@ -1,11 +1,11 @@
 import copy
 import json
 import random
-import sys
 import time
 import boto3
 from uuid import uuid4
 from collections import namedtuple
+from argparse import ArgumentParser
 
 Product = namedtuple('Product', ['code', 'name', 'price'])
 
@@ -22,21 +22,21 @@ customer_ids = [
 ]
 
 
-def make_orderitems():
+def make_cartitems():
     """
-    Generate random order items in cart
+    Generate random items in cart
     
     Returns: cart (list of dicts)
     """
     available_products = copy.copy(products)
     n_products = len(products)
-    order_items = []
+    cart_items = []
     for _ in range(random.randint(1,n_products)):
         product = random.choice(available_products)
         available_products.remove(product)
         qty = random.randint(1, 10)
         
-        order_items.append({
+        cart_items.append({
             'product_name': product.name,
             'product_code': product.code,
             'product_quantity': qty,
@@ -46,7 +46,7 @@ def make_orderitems():
     return order_items
 
 
-def main():
+def main(stream_duration):
     start_time = time.time()
     is_streaming = True
     while is_streaming:
@@ -54,14 +54,19 @@ def main():
         order = json.dumps({
             "order_id": str(uuid4()),
             "customer_id": random.choice(customer_ids),
-            "cart": make_orderitems()
+            "cart_items": make_orderitems()
         })
+        # For FileStreamSourceConnector, print order
+        # For kafka.Producer class, send directly to topic
         print(order)
         time.sleep(0.3)
         stopwatch = time.time() - start_time
-        if stopwatch >= 60:
+        if stopwatch >= stream_duration:
             is_streaming = False
 
 
 if __name__ == '__main__':
-    main()
+    parser = ArgumentParser()
+    parser.add_argument('--stream-duration', type=int, default=60, required=False, help="Time to keep stream running for")
+    args = parser.parse_args()
+    main(args.stream_duration)

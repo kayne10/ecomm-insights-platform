@@ -1,0 +1,29 @@
+{
+    "index-patterns": {
+        "orders*"
+    },
+    "aliases": {
+        "orders": {}
+    },
+    "index": {
+        "number_of_replicas": 2,
+        "refresh_interval": "10s"
+    },
+    "mappings": {
+        "properties": {
+            "order_id": {
+                "type":"keyword"
+            },
+            "customer_id": {
+                "type": "keyword"
+            },
+            "cart_items": {
+                "type": "nested",
+                "dynamic": false
+            },
+            "cart_total": {
+                "type": "half_float"
+            }
+        }
+    }
+}

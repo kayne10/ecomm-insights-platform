@@ -2,3 +2,11 @@
 
 # consider commands for mappings / index templates / ilm
 # such as [create-mappings, create-ilm, delete-mappings, delete-ilm]
+CMD="${1}"
+case $CMD in
+    create-template)
+        curl -X PUT "elasticsearch:9200/_template/orders" \
+        -H 'Content-Type: applcation/json' \
+        -d @path/to/mappyings.json
+    ;;
+esac
