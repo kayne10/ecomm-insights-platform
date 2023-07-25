@@ -1,7 +1,7 @@
 {
-    "index-patterns": {
+    "index-patterns": [
         "orders*"
-    },
+    ],
     "aliases": {
         "orders": {}
     },

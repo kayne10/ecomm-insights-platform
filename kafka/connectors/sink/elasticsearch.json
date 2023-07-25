@@ -10,8 +10,11 @@
         "value.converter.schemas.enable": "false",
         "connection.url": "http://elasticsearch:9200",
         "batch.size": "2000",
-        "type.name": "_doc",
+        "type.name": "type.name=kafkaconnect",
         "key.ignore": "true",
-        "schema.ignore": "true"
+        "schema.ignore": "true",
+        "transforms.ExtractTimestamp.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+        "transforms.ExtractTimestamp.timestamp.field" : "timestamp",
+        "schema.mapping":""
     }
 }

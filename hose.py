@@ -43,7 +43,7 @@ def make_cartitems():
             'product_price': product.price
         })
 
-    return order_items
+    return cart_items
 
 
 def main(stream_duration):
@@ -54,7 +54,7 @@ def main(stream_duration):
         order = json.dumps({
             "order_id": str(uuid4()),
             "customer_id": random.choice(customer_ids),
-            "cart_items": make_orderitems()
+            "cart_items": make_cartitems()
         })
         # For FileStreamSourceConnector, print order
         # For kafka.Producer class, send directly to topic

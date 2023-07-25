@@ -7,6 +7,6 @@ case $CMD in
     create-template)
         curl -X PUT "elasticsearch:9200/_template/orders" \
         -H 'Content-Type: applcation/json' \
-        -d @path/to/mappyings.json
+        -d @elasticsearch/mappings/orders.json
     ;;
 esac
