@@ -11,7 +11,7 @@
         "connection.url": "http://elasticsearch:9200",
         "batch.size": "2000",
         "type.name": "type.name=kafkaconnect",
-        "topic.index.map": "'ecommerce-orders':'ecommerce_orders'",
+        "topic.index.map": "'ecommerce-orders':'ecommerce-orders'",
         "key.ignore": "true",
         "schema.ignore": "true",
         "transforms.ExtractTimestamp.type": "org.apache.kafka.connect.transforms.InsertField$Value",

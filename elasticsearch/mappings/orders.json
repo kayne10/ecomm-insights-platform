@@ -1,18 +1,19 @@
 {
-    "template": "ecommerce_orders",
     "settings": {
-        "number_of_shards": 1,
-        "number_of_replicas": 0
+        "index": {
+            "number_of_shards": "1",
+            "number_of_replicas": "1"
+        }
     },
     "mappings": {
         "properties": {
             "order_id": {
-                "type":"keyword"
+                "type": "keyword"
             },
             "customer_id": {
                 "type": "keyword"
             },
-            "cart_items": {
+            "cart_items" : {
                 "type": "nested",
                 "dynamic": false
             },
