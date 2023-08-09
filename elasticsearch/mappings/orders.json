@@ -1,13 +1,8 @@
 {
-    "index-patterns": [
-        "orders*"
-    ],
-    "aliases": {
-        "orders": {}
-    },
-    "index": {
-        "number_of_replicas": 2,
-        "refresh_interval": "10s"
+    "template": "ecommerce_orders",
+    "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
     },
     "mappings": {
         "properties": {
