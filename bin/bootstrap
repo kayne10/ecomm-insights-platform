@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---------------------------------------------
+# Configuration
+# ---------------------------------------------
+BOOTSTRAP_CONTAINER="bootstrap"
+KAFKA_SERVICES=("zookeeper" "kafka" "schema-registry")
+PRODUCERS=("producer-add-to-cart" "producer-purchase")
+
+# ---------------------------------------------
+# Functions
+# ---------------------------------------------
+
+# Placeholder art
+ascii_ready() {
+cat << "EOF"
+
+██████╗  █████╗ ██████╗ ███████╗████████╗     ███████╗██████╗ ███████╗
+██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══██╔══╝     ██╔════╝██╔══██╗██╔════╝
+██████╔╝███████║██████╔╝█████╗     ██║        █████╗  ██████╔╝███████╗
+██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝     ██║        ██╔══╝  ██╔══██╗╚════██║
+██║     ██║  ██║██║     ███████╗   ██║        ███████╗██║  ██║███████║
+╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝   ╚═╝        ╚══════╝╚═╝  ╚═╝╚══════╝
+
+EOF
+}
+
+usage() {
+    echo "Usage: $0 <command>"
+    echo ""
+    echo "Commands:"
+    echo "  bootstrap      Create Kafka topics and register schemas"
+    echo "  status         Check status of Kafka, Zookeeper, and Schema Registry"
+    echo "  logs <name>    Tail logs for a producer service (default: ${PRODUCERS[0]})"
+    echo "  help           Show this help message"
+    echo ""
+    echo "Example:"
+    echo "  $0 bootstrap"
+    echo "  $0 logs producer-add-to-cart"
+}
+
+bootstrap() {
+    echo "🚀 Bootstrapping Kafka environment..."
+    docker compose run --rm "$BOOTSTRAP_CONTAINER"
+    ascii_ready
+    echo "✅ Kafka environment is ready to stream!"
+    echo "Start producers with:"
+    for p in "${PRODUCERS[@]}"; do
+        echo "  docker compose up -d $p"
+    done
+}
+
+status() {
+    echo "📊 Checking Kafka environment..."
+    docker compose ps "${KAFKA_SERVICES[@]}"
+}
+
+logs() {
+    local service="${1:-${PRODUCERS[0]}}"
+    echo "📄 Tailing logs for $service..."
+    docker compose logs -f "$service"
+}
+
+# ---------------------------------------------
+# CLI argument parsing
+# ---------------------------------------------
+if [ $# -lt 1 ]; then
+    usage
+    exit 1
+fi
+
+case "$1" in
+    bootstrap)
+        bootstrap
+        ;;
+    status)
+        status
+        ;;
+    logs)
+        logs "${2:-}"
+        ;;
+    help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1"
+        usage
+        exit 1
+        ;;
+esac
