@@ -27,6 +27,3 @@ ENV PYTHONPATH="${PYTHONPATH}:/app/src:/app/src/common"
 
 # Set default working directory to src
 WORKDIR /app/src
-
-# Default command: run main.py
-CMD ["python", "main.py"]

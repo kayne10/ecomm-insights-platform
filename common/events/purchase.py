@@ -1,12 +1,15 @@
 import random
 import uuid
 from datetime import datetime
-from .event_base import EventBase
-
+from common.events.event_base import EventBase
 
 class PurchaseEvent(EventBase):
+    name = "purchase"
+    topic = "purchase-events"
+    
     fields = [
         {"name": "event_id", "type": "string"},
+        {"name": "event_type", "type": "string"},
         {"name": "user_id", "type": "string"},
         {"name": "order_id", "type": "string"},
         {"name": "amount", "type": "float"},
@@ -14,9 +17,11 @@ class PurchaseEvent(EventBase):
         {"name": "timestamp", "type": "string"},
     ]
 
-    def generate_event(self):
+    @classmethod
+    def generate(cls):
         return {
             "event_id": str(uuid.uuid4()),
+            "event_type": cls.name,
             "user_id": str(uuid.uuid4()),
             "order_id": str(uuid.uuid4()),
             "amount": round(random.uniform(10, 500), 2),
