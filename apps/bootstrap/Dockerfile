@@ -7,14 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     librdkafka-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ../../requirements.txt .
+COPY apps/bootstrap/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy bootstrap src and common code
-COPY ./src/ ./src/
-COPY ../../common/ ./common/
+COPY apps/bootstrap/src/ /app/src/
+COPY common/ /app/src/common/
 
-ENV PYTHONPATH="${PYTHONPATH}:/app/src:/app/common"
+ENV PYTHONPATH="${PYTHONPATH}:/app/src:/app/src/common"
 
 WORKDIR /app/src
 
