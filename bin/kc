@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# consider more commands for this executable such as [create-sources, create-sinks, create-topics, update-all, delete-sources, delete-sinks]
+# TODO: usage prompt with more commands for this executable such as [create-sources, create-sinks, create-topics, update-all, delete-sources, delete-sinks]
 
 CMD="$1"
 
