@@ -39,3 +39,27 @@ class EventBase(ABC):
             "fields": cls.fields,
         }
         return json.dumps(schema, indent=2)
+    
+    @classmethod
+    def to_schema(cls):
+        """Kafka Avro-like schema for serialization."""
+        return {
+            "type": "record",
+            "name": cls.name,
+            "fields": [
+                {"name": f["name"], "type": f["kafka_type"]}
+                for f in cls.fields
+            ],
+        }
+
+    @classmethod
+    def to_es_mapping(cls):
+        """Elasticsearch mapping generated from fields list."""
+        return {
+            "mappings": {
+                "properties": {
+                    f["name"]: {"type": f["es_type"]}
+                    for f in cls.fields
+                }
+            }
+        }

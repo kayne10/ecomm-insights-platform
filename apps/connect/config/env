@@ -1,0 +1,10 @@
+CONNECT_BOOTSTRAP_SERVERS=kafka:9092
+CONNECT_REST_ADVERTISED_HOST_NAME=kafka-connect
+CONNECT_GROUP_ID="connect-cluster"
+CONNECT_CONFIG_STORAGE_TOPIC=_connect-configs
+CONNECT_OFFSET_STORAGE_TOPIC=_connect-offsets
+CONNECT_STATUS_STORAGE_TOPIC=_connect-status
+CONNECT_KEY_CONVERTER=org.apache.kafka.connect.storage.StringConverter
+CONNECT_VALUE_CONVERTER=io.confluent.connect.avro.AvroConverter
+CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+CONNECT_PLUGIN_PATH=/usr/share/java,/etc/kafka-connect/jars

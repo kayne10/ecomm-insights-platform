@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -e
+
+usage() {
+    cat <<EOF
+
+  🏗️ READY FOR INSIGHTS — Bootstrap CLI
+  -------------------------------------
+  Usage:
+    bin/bootstrap up          - Start all infrastructure (Kafka, Schema Registry, ES, Kibana)
+    bin/bootstrap kafka       - Create Kafka topics and register schemas
+    bin/bootstrap es          - Create Elasticsearch ILM policies, templates, aliases, indices
+    bin/bootstrap all         - Do everything
+
+EOF
+}
+
+bootstrap_up() {
+    echo "🚀 Starting infrastructure..."
+    docker compose up -d kafka schema-registry connect elasticsearch kibana
+}
+
+bootstrap_kafka() {
+    echo "📡 Bootstrapping Kafka (topics + schemas)..."
+    docker compose run --rm bootstrap python kafka.py
+}
+
+bootstrap_es() {
+    echo "📊 Bootstrapping Elasticsearch..."
+    docker compose run --rm bootstrap python elastic.py
+}
+
+bootstrap_all() {
+    bootstrap_up
+    docker compose run --rm bootstrap
+}
+
+case "$1" in
+    up) bootstrap_up ;;
+    kafka) bootstrap_kafka ;;
+    es) bootstrap_es ;;
+    all) bootstrap_all ;;
+    *) usage ;;
+esac

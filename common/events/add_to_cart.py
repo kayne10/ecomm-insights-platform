@@ -9,12 +9,12 @@ class AddToCartEvent(EventBase):
     topic = "add-to-cart-events"
 
     fields = [
-        {"name": "event_id", "type": "string"},
-        {"name": "event_type", "type": "string"},
-        {"name": "user_id", "type": "string"},
-        {"name": "product_id", "type": "string"},
-        {"name": "quantity", "type": "int"},
-        {"name": "timestamp", "type": "string"},
+        {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "event_type", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "user_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "product_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "quantity", "kafka_type": "int", "es_type": "integer"},
+        {"name": "timestamp", "kafka_type": "string", "es_type": "keyword"},
     ]
 
     @classmethod

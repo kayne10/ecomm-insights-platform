@@ -8,13 +8,13 @@ class PurchaseEvent(EventBase):
     topic = "purchase-events"
     
     fields = [
-        {"name": "event_id", "type": "string"},
-        {"name": "event_type", "type": "string"},
-        {"name": "user_id", "type": "string"},
-        {"name": "order_id", "type": "string"},
-        {"name": "amount", "type": "float"},
-        {"name": "currency", "type": "string"},
-        {"name": "timestamp", "type": "string"},
+        {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "event_type", "kafka_type": "string"}, "es_type": "keyword",
+        {"name": "user_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "order_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "amount", "kafka_type": "float", "es_type": "float"},
+        {"name": "currency", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "timestamp", "kafka_type": "string", "es_type": "keyword"},
     ]
 
     @classmethod
