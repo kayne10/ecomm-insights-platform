@@ -2,7 +2,6 @@ services:
   # Data Storage & Infra
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
-    container_namne: zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -10,8 +9,8 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.1
     container_name: kafka
+    image: confluentinc/cp-kafka:7.6.1
     depends_on:
       - zookeeper
     ports:
@@ -25,8 +24,8 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.1
     container_name: scchema-registry
+    image: confluentinc/cp-schema-registry:7.6.1
     depends_on:
       - kafka
     ports:
@@ -37,8 +36,8 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
     container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
@@ -55,8 +54,8 @@ services:
       retries: 5
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.15.3
     container_name: kibana
+    image: docker.elastic.co/kibana/kibana:8.15.3
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
@@ -93,6 +92,7 @@ services:
     command: ["python", "main.py"]
 
   connect:
+    container_name: kafka-connect
     image: confluentinc/cp-kafka-connect:7.5.0
     depends_on:
       - kafka

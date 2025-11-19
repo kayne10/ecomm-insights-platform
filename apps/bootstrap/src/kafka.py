@@ -24,7 +24,7 @@ def register_schemas():
     client = SchemaRegistryClient({"url": SchemaRegistryConfig.URL})
 
     for event_type, EventClass in EVENT_REGISTRY.items():
-        schema_str = EventClass.get_avro_schema()
+        schema_str = EventClass.to_schema()
         schema = Schema(schema_str, "AVRO")
         subject = f"{EventClass.get_index_name()}-value"
 

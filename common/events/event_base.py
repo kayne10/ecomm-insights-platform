@@ -26,24 +26,11 @@ class EventBase(ABC):
         Topic/Index name = lowercase class name
         """
         return cls.topic
-
-    @classmethod
-    def get_avro_schema(cls):
-        """
-        Generate Avro schema dynamically from `fields`
-        """
-        schema = {
-            "type": "record",
-            "name": cls.__name__,
-            "namespace": "com.example.ecommerce",
-            "fields": cls.fields,
-        }
-        return json.dumps(schema, indent=2)
     
     @classmethod
     def to_schema(cls):
         """Kafka Avro-like schema for serialization."""
-        return {
+        schema = {
             "type": "record",
             "name": cls.name,
             "fields": [
@@ -51,15 +38,14 @@ class EventBase(ABC):
                 for f in cls.fields
             ],
         }
+        return json.dumps(schema, indent=2)
 
     @classmethod
     def to_es_mapping(cls):
         """Elasticsearch mapping generated from fields list."""
         return {
-            "mappings": {
-                "properties": {
-                    f["name"]: {"type": f["es_type"]}
-                    for f in cls.fields
-                }
+            "properties": {
+                f["name"]: {"type": f["es_type"]}
+                for f in cls.fields
             }
         }

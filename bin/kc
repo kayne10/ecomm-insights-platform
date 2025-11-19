@@ -9,7 +9,7 @@ BASE_PATH="${PWD}/kafka/connectors/"
 ENDPOINT="http://localhost:8083"
 
 # create_connectors() {}
-
+# TODO: add create, delete, and check status
 case $CMD in
     source)
 	echo "Creating kafka-connect source connectors"

@@ -1,4 +1,5 @@
 import requests
+import json
 import logging
 from common.registry import EVENT_REGISTRY
 
@@ -42,13 +43,14 @@ def create_index_template(event_name, mapping):
         "template": {
             "settings": {
                 "index.lifecycle.name": policy_name,
-                "index.lifecycle.rollover_alias": event_name
+                "index.lifecycle.rollover_alias": event_name,
+                "number_of_shards": 1
             },
             "mappings": mapping
         }
     }
 
-    r = requests.put(url, json=payload)
+    r = requests.put(url, data=json.dumps(payload), headers={"Content-Type":"application/json"})
     r.raise_for_status()
     logger.info(f"✅ Created index template: {template_name}")
 
@@ -57,7 +59,7 @@ def create_index_and_alias(event_name):
     url = f"{ES_HOST}/{index_name}"
     payload = {"aliases": {event_name: {"is_write_index": True}}}
 
-    r = requests.put(url, json=payload)
+    r = requests.put(url, data=json.dumps(payload), headers={"Content-Type":"application/json"})
     r.raise_for_status()
     logger.info(f"✅ Created index: {index_name} with alias: {event_name}")
 

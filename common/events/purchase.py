@@ -9,7 +9,7 @@ class PurchaseEvent(EventBase):
     
     fields = [
         {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
-        {"name": "event_type", "kafka_type": "string"}, "es_type": "keyword",
+        {"name": "event_type", "kafka_type": "string", "es_type": "keyword"},
         {"name": "user_id", "kafka_type": "string", "es_type": "keyword"},
         {"name": "order_id", "kafka_type": "string", "es_type": "keyword"},
         {"name": "amount", "kafka_type": "float", "es_type": "float"},
