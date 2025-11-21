@@ -1,14 +1,22 @@
 import argparse
 import time
 import random
+import json
 import logging
 from confluent_kafka import Producer
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroSerializer
 from common.registry import EVENT_REGISTRY
 from settings import ProducerConfig, setup_logger
 
 logger = setup_logger()
 
 def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval: float = 1.0):
+    schema_registry_conf = {
+        "url": "http://schema-registry:8081"
+    }
+    schema_registry = SchemaRegistryClient(schema_registry_conf)
+    # TODO: serialize avro schema with producer
     producer = Producer(config.as_dict())
     logger.info(f"Starting producer for event types: {event_types}")
 
@@ -22,7 +30,7 @@ def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval:
             producer.produce(
                 topic,
                 key=payload["event_id"],
-                value=str(payload),
+                value=json.dumps(payload).encode("utf-8"),
                 callback=lambda err, msg: logger.error(err) if err else logger.debug(f"Delivered {msg.topic()}:{msg.partition()} @ {msg.offset()}")
             )
             producer.poll(0)
@@ -31,7 +39,7 @@ def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval:
             if count % batch_flush == 0:
                 producer.flush()
             
-            logger.info(f"[{event_cls.name}] Produced: {payload}")
+            logger.info(f"[{event_cls.name}] Produced: {json.dumps(payload)}")
             time.sleep(interval)
     except KeyboardInterrupt:
         logger.info("Shutting down producer...")

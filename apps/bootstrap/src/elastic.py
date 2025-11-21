@@ -55,9 +55,13 @@ def create_index_template(event_name, mapping):
     logger.info(f"✅ Created index template: {template_name}")
 
 def create_index_and_alias(event_name):
-    index_name = f"{event_name}_v1"
+    index_name = f"{event_name}_v1-000001"
     url = f"{ES_HOST}/{index_name}"
-    payload = {"aliases": {event_name: {"is_write_index": True}}}
+    payload = {
+        "aliases": {
+            event_name: {"is_write_index": True}
+        }
+    }
 
     r = requests.put(url, data=json.dumps(payload), headers={"Content-Type":"application/json"})
     r.raise_for_status()

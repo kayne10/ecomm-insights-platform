@@ -1,40 +1,85 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# TODO: usage prompt with more commands for this executable such as [create-sources, create-sinks, create-topics, update-all, delete-sources, delete-sinks]
+CONNECT_URL="http://localhost:8083"   # outside docker
+CONNECTORS_DIR="apps/connect/connectors"
 
-CMD="$1"
+usage() {
+  cat <<EOF
+Kafka Connect CLI
 
-BASE_PATH="${PWD}/kafka/connectors/"
-ENDPOINT="http://localhost:8083"
+Usage:
+  kc list                       List all connectors
+  kc create <name>              Create connector from .json config
+  kc delete <name>              Delete connector
+  kc apply <name>               Create or update connector
+  kc create-all                 Create all connectors found in $CONNECTORS_DIR
 
-# create_connectors() {}
-# TODO: add create, delete, and check status
-case $CMD in
-    source)
-	echo "Creating kafka-connect source connectors"
-	find "${BASE_PATH}/source" -name "*.json" -print0 | while read -d $'\0' connector; do
-	    NAME=$(jq -r '.name' $connector)
-	    CONFIG=$(jq -r '.config' $connector)
-	    curl -s -X PUT "${ENDPOINT}/connectors/${NAME}/config" \
-		-H 'Accept: application/json' \
-		-H 'Content-Type: application/json' \
-		-d "$CONFIG"
-	done
-	;;
-    sink)
-	echo "Creating kafka-connect sink connectors"
-	find "${BASE_PATH}/sink" -name "*.json" -print0 | while read -d $'\0' connector; do
-	    NAME=$(jq -r '.name' $connector)
-            CONFIG=$(jq -r '.config' $connector)
-            curl -s -X PUT "${ENDPOINT}/connectors/${NAME}/config" \
-                -H 'Accept: application/json' \
-                -H 'Content-Type: application/json' \
-                -d "$CONFIG"
-        done
-	;;
-    *)
-	echo "Command not found. Options are [source,sink]"
-	exec "$@"
-	;;
+Examples:
+  kc create add_to_cart
+  kc delete add_to_cart
+  kc apply add_to_cart
+  kc list
+
+READY FOR INSIGHTS?
+EOF
+}
+
+list_connectors() {
+  curl -s "$CONNECT_URL/connectors" | jq .
+}
+
+create_connector() {
+  local name="$1"
+  local file="$CONNECTORS_DIR/$name.json"
+
+  if [[ ! -f "$file" ]]; then
+    echo "Config file not found: $file" >&2
+    exit 1
+  fi
+
+  echo "Creating connector: $name"
+  curl -s -X POST "$CONNECT_URL/connectors" \
+    -H "Content-Type: application/json" \
+    --data @"$file" | jq .
+}
+
+delete_connector() {
+  local name="$1"
+  echo "Deleting connector: $name"
+  curl -s -X DELETE "$CONNECT_URL/connectors/$name" | jq .
+}
+
+apply_connector() {
+  local name="$1"
+  local file="$CONNECTORS_DIR/$name.json"
+
+  echo "Applying connector: $name"
+
+  # if exists → PUT config
+  if curl -sf "$CONNECT_URL/connectors/$name" >/dev/null; then
+    echo "(Updating existing connector)"
+    curl -s -X PUT "$CONNECT_URL/connectors/$name/config" \
+      -H "Content-Type: application/json" \
+      --data @"$file" | jq .
+  else
+    echo "(Creating new connector)"
+    create_connector "$name"
+  fi
+}
+
+create_all() {
+  for f in "$CONNECTORS_DIR"/*.json; do
+    name=$(basename "$f" .json)
+    apply_connector "$name"
+  done
+}
+
+case "${1:-}" in
+  list) list_connectors ;;
+  create) create_connector "$2" ;;
+  delete) delete_connector "$2" ;;
+  apply) apply_connector "$2" ;;
+  create-all) create_all ;;
+  *) usage ;;
 esac
