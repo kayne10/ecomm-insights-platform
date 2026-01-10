@@ -43,14 +43,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--events", type=str, help="List of event types to stream", required=True)
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between messages")
+    parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
 
-    # Map strings to classes
-    selected_events = []
-    for evt in args.events.split(','):
-        if evt not in EVENT_REGISTRY:
-            raise ValueError(f"Unknown event type: {evt}")
-        selected_events.append(EVENT_REGISTRY[evt])
+    if args.list:
+        print("\n".join(EVENT_REGISTRY.keys()))
+    elif args.events:
+        selected_events = []
+        for evt in args.events.split(','):
+            if evt not in EVENT_REGISTRY:
+                raise ValueError(f"Unknown event type: {evt}")
+            selected_events.append(EVENT_REGISTRY[evt])
 
-    config = ProducerConfig()
-    stream(selected_events, config, interval=args.interval)
+        config = ProducerConfig()
+        stream(selected_events, config, interval=args.interval)
+    else:
+        parser.print_help()

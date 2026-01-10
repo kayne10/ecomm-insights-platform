@@ -2,3 +2,6 @@
 log/
 
 __pycache__/
+
+# Duplicate common dirs from docker volumes
+apps/**/src/common/

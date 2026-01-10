@@ -1,4 +1,5 @@
 services:
+  # Data Storage & Infra
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
     environment:
@@ -8,6 +9,7 @@ services:
       - "2181:2181"
 
   kafka:
+    container_name: kafka
     image: confluentinc/cp-kafka:7.6.1
     depends_on:
       - zookeeper
@@ -22,6 +24,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   schema-registry:
+    container_name: scchema-registry
     image: confluentinc/cp-schema-registry:7.6.1
     depends_on:
       - kafka
@@ -32,6 +35,35 @@ services:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
+  elasticsearch:
+    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  kibana:
+    container_name: kibana
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  # Apps
   bootstrap:
     build:
       context: .
@@ -58,3 +90,21 @@ services:
       - ./common:/app/src/common
       - ./apps/producer/src:/app/src
     command: ["python", "main.py"]
+
+  connect:
+    container_name: kafka-connect
+    image: confluentinc/cp-kafka-connect:7.5.0
+    depends_on:
+      - kafka
+      - schema-registry
+      - elasticsearch
+    env_file:
+      - ./apps/connect/config/env
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./apps/connect/plugins:/etc/kafka-connect/jars
+      - ./apps/connect/connectors:/connectors
+
+volumes:
+  es_data:

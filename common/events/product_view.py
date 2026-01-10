@@ -8,14 +8,14 @@ class ProductViewEvent(EventBase):
     topic = "product-view-events"
 
     fields = [
-        {"name": "event_id", "type": "string"},
-        {"name": "event_type", "type": "string"},
-        {"name": "user_id", "type": "string"},
-        {"name": "session_id", "type": "string"},
-        {"name": "product_id", "type": "string"},
-        {"name": "category", "type": "string"},
-        {"name": "price", "type": "float"},
-        {"name": "viewed_at", "type": "string", "logicalType": "timestamp-millis"}
+        {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "event_type", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "user_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "session_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "product_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "category", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "price", "kafka_type": "float", "es_type": "float"},
+        {"name": "viewed_at", "kafka_type": "string", "logicalType": "timestamp-millis", "es_type": "keyword"}
     ]
 
     @classmethod
