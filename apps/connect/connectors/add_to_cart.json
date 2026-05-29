@@ -12,7 +12,7 @@
     "write.method": "insert",
     "max.buffered.records": "10000",
     "flush.timeout.ms": "60000",
-    "index": "add_to_cart",
+    "topic.index.map": "add-to-cart-events:add_to_cart",
     "value.converter": "io.confluent.connect.avro.AvroConverter",
     "value.converter.schema.registry.url": "http://schema-registry:8081"
   }
