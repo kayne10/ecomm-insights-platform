@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# Open a tmux session that shows every stage of the pipeline at once.
+#
+#   window "pipeline"           window "health"              window "docker"
+#  +------------+------------+  +-------------------------+  +----------------+
+#  | 1 producer | 2 kafka    |  | connect ERROR/WARN logs |  |   lazydocker   |
+#  +------------+------------+  +-------------------------+  |                |
+#  | 3 sink lag | 4 ES count |  | docker stats            |  |                |
+#  +------------+------------+  +-------------------------+  +----------------+
+#
+# Read it left-to-right, top-to-bottom: an event should appear in 1, then 2,
+# lag in 3 should bounce back to 0, then the count in 4 should rise.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+ROOT="$(pwd)"
+
+SESSION="ecomm-observe"
+PRODUCER_NAME="ecomm-observe-producer"
+EVENTS="add_to_cart"
+INTERVAL="0.5"
+TOPIC="add-to-cart-events"
+GROUP="connect-add_to_cart_es_sink"
+EVERY="2"
+PRODUCE=1
+
+usage() {
+    cat <<USAGE
+
+  🔭 READY FOR INSIGHTS — Observe CLI
+  -----------------------------------
+  Usage:
+    bin/observe [options]        Open (or re-attach to) the observability tmux session
+    bin/observe kill             Close the session (stops the producer too)
+
+  Options:
+    -e, --events <list>    Event types to stream: name, comma list, or "all" (default: $EVENTS)
+    -i, --interval <sec>   Seconds between produced events (default: $INTERVAL)
+    -t, --topic <topic>    Topic shown in the Kafka pane (default: $TOPIC)
+    -g, --group <group>    Consumer group shown in the lag pane (default: $GROUP)
+    -n, --no-produce       Don't start the producer; the pane is left at a prompt
+        --every <sec>      Refresh rate for lag and ES panes (default: $EVERY)
+
+  tmux basics (prefix is Ctrl-b):
+    prefix + n / p         next / previous window
+    prefix + z             zoom the current pane (again to unzoom)
+    prefix + arrow         move between panes (mouse also works)
+    prefix + d             detach; everything keeps running. Re-run bin/observe to return.
+
+USAGE
+}
+
+die() { echo "❌ $*" >&2; exit 1; }
+
+kill_session() {
+    local running=0
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        running=1
+        # Ctrl-C every pane first so the producer flushes and exits cleanly.
+        # Skip our own pane when run from inside the session, or we'd interrupt ourselves.
+        for pane in $(tmux list-panes -s -t "$SESSION" -F '#{pane_id}'); do
+            [[ "$pane" == "${TMUX_PANE:-}" ]] || tmux send-keys -t "$pane" C-c
+        done
+        sleep 2
+    fi
+    # Killing tmux doesn't stop a `docker compose run` container, so make sure it's gone.
+    # This runs before kill-session because that also ends this script when run from inside it.
+    if docker ps -aq --filter "name=^${PRODUCER_NAME}$" | grep -q .; then
+        docker rm -f "$PRODUCER_NAME" >/dev/null
+        echo "🛑 Stopped producer container '$PRODUCER_NAME'"
+    fi
+    if [[ "$running" == 1 ]]; then
+        echo "🛑 Closing tmux session '$SESSION'"
+        tmux kill-session -t "$SESSION"
+    else
+        echo "No '$SESSION' session running"
+    fi
+}
+
+attach() {
+    if [[ -n "${TMUX:-}" ]]; then
+        tmux switch-client -t "$SESSION"
+    else
+        tmux attach-session -t "$SESSION"
+    fi
+}
+
+# --- args -------------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        kill) kill_session; exit 0 ;;
+        -e|--events) EVENTS="$2"; shift 2 ;;
+        -i|--interval) INTERVAL="$2"; shift 2 ;;
+        -t|--topic) TOPIC="$2"; shift 2 ;;
+        -g|--group) GROUP="$2"; shift 2 ;;
+        -n|--no-produce) PRODUCE=0; shift ;;
+        --every) EVERY="$2"; shift 2 ;;
+        -h|--help|help) usage; exit 0 ;;
+        *) usage; die "Unknown argument: $1" ;;
+    esac
+done
+
+# --- preflight --------------------------------------------------------------
+for tool in tmux watch kafkactl jq; do
+    command -v "$tool" >/dev/null || die "$tool is required (brew install $tool)"
+done
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "↩️  Re-attaching to existing '$SESSION' session (bin/observe kill to start over)"
+    attach
+    exit 0
+fi
+
+if ! curl -sf http://localhost:8083/connectors >/dev/null || ! curl -sf http://localhost:9200 >/dev/null; then
+    die "The stack isn't up (Kafka Connect or Elasticsearch unreachable). Run: make dev"
+fi
+
+# --- layout -----------------------------------------------------------------
+if [[ "$PRODUCE" == 1 ]]; then
+    PRODUCER_CMD="PRODUCER_NAME=$PRODUCER_NAME make stream EVENTS=$EVENTS INTERVAL=$INTERVAL"
+else
+    PRODUCER_CMD="echo 'Producer not started. Run: make stream EVENTS=$EVENTS INTERVAL=$INTERVAL'"
+fi
+KAFKA_CMD="make kctl-follow TOPIC=$TOPIC"
+LAG_CMD="make sink-lag-watch GROUP=$GROUP EVERY=$EVERY"
+ES_CMD="make es-watch EVERY=$EVERY"
+ERRORS_CMD="make connect-errors"
+STATS_CMD="make stats"
+
+# Create a pane running a command in an interactive shell, so Ctrl-C drops you
+# to a prompt in the repo instead of closing the pane.
+run_in() { tmux send-keys -t "$1" "$2" C-m; }
+label() { tmux set-option -p -t "$1" @label "$2"; }
+
+# Window 1: pipeline, as a 2x2 grid
+tmux new-session -d -s "$SESSION" -n pipeline -c "$ROOT" -x "$(tput cols 2>/dev/null || echo 200)" -y "$(tput lines 2>/dev/null || echo 50)"
+tmux set-option -t "$SESSION" mouse on
+tmux set-option -t "$SESSION" pane-border-status top
+# Labels live in a custom pane option (@label) because shells overwrite pane_title.
+tmux set-option -t "$SESSION" pane-border-format " #{@label} "
+
+P1=$(tmux display-message -p -t "$SESSION:pipeline" '#{pane_id}')
+P2=$(tmux split-window -h -t "$P1" -c "$ROOT" -P -F '#{pane_id}')
+P3=$(tmux split-window -v -t "$P1" -c "$ROOT" -P -F '#{pane_id}')
+P4=$(tmux split-window -v -t "$P2" -c "$ROOT" -P -F '#{pane_id}')
+
+label "$P1" "producer ($EVENTS)"
+label "$P2" "kafka: $TOPIC"
+label "$P3" "sink lag: $GROUP"
+label "$P4" "elasticsearch doc counts"
+
+run_in "$P1" "$PRODUCER_CMD"
+run_in "$P2" "$KAFKA_CMD"
+run_in "$P3" "$LAG_CMD"
+run_in "$P4" "$ES_CMD"
+
+# Window 2: health (connect errors on top, container resources below)
+tmux new-window -t "$SESSION" -n health -c "$ROOT"
+H1=$(tmux display-message -p -t "$SESSION:health" '#{pane_id}')
+H2=$(tmux split-window -v -t "$H1" -c "$ROOT" -l 12 -P -F '#{pane_id}')
+label "$H1" "kafka-connect ERROR/WARN"
+label "$H2" "container resources"
+run_in "$H1" "$ERRORS_CMD"
+run_in "$H2" "$STATS_CMD"
+
+# Window 3: lazydocker for container logs, restarts and exec (optional tool)
+tmux new-window -t "$SESSION" -n docker -c "$ROOT"
+D1=$(tmux display-message -p -t "$SESSION:docker" '#{pane_id}')
+label "$D1" "lazydocker"
+if command -v lazydocker >/dev/null; then
+    run_in "$D1" "lazydocker"
+else
+    run_in "$D1" "echo 'lazydocker not installed: brew install lazydocker'"
+fi
+
+tmux select-window -t "$SESSION:pipeline"
+tmux select-pane -t "$P1"
+
+echo "🔭 Opening '$SESSION' (Ctrl-b d to detach, bin/observe kill to close)"
+attach

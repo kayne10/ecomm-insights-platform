@@ -24,7 +24,8 @@ USAGE
 stream_start() {
     local events=$1 count=${2:-0} interval=${3:-1.0}
     echo "🚀 Starting producer for: $events"
-    docker compose run --rm producer python main.py --events "$events" --count "$count" --interval "$interval"
+    # PRODUCER_NAME (optional) gives the container a fixed name so it can be stopped from elsewhere.
+    docker compose run --rm ${PRODUCER_NAME:+--name "$PRODUCER_NAME"} producer python main.py --events "$events" --count "$count" --interval "$interval"
 }
 
 stream_list() {

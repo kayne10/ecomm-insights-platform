@@ -25,7 +25,11 @@ Imagine orders from an online e-commerce site get emitted to Kafka. This data ar
 
 ## 📦 Quick start
 
-Requirements: Docker (with ~6 GB RAM allotted), `make`, `jq`, `curl`. Optional: [`kafkactl`](https://deviceinsight.github.io/kafkactl/) for monitoring (`brew install deviceinsight/packages/kafkactl`).
+Requirements: Docker (with ~6 GB RAM allotted), `make`, `jq`, `curl`. Optional, for monitoring: [`kafkactl`](https://deviceinsight.github.io/kafkactl/), `tmux`, `watch` and `lazydocker`:
+
+```bash
+brew install deviceinsight/packages/kafkactl tmux watch lazydocker
+```
 
 ```bash
 make dev        # start infra, wait for health, bootstrap topics/schemas/ES, apply connectors
@@ -57,6 +61,51 @@ The `bin/` scripts are still available for finer control: `bin/bootstrap`, `bin/
 * `docker compose up -d` only starts infrastructure. `bootstrap` and `producer` are one-shot tools behind the `tools` compose profile and run via `docker compose run --rm`.
 * Connection settings in `common/settings.py` read `KAFKA_BOOTSTRAP_SERVERS`, `SCHEMA_REGISTRY_URL` and `ELASTICSEARCH_URL`, so the apps can also run directly on your laptop against the laptop-side endpoints above.
 * Set `LOG_LEVEL=DEBUG` on the producer to see per-message delivery reports.
+
+## 🔭 Observing the whole pipeline
+
+```bash
+make dev        # once, if the stack isn't up
+make observe    # or: bin/observe --events all --interval 0.2
+```
+
+This opens a tmux session called `ecomm-observe` with three windows:
+
+```
+ window "pipeline"              window "health"                window "docker"
++-------------+-------------+  +--------------------------+  +----------------+
+| 1 producer  | 2 kafka     |  | kafka-connect ERROR/WARN |  |   lazydocker   |
++-------------+-------------+  +--------------------------+  |                |
+| 3 sink lag  | 4 ES counts |  | container CPU / memory   |  |                |
++-------------+-------------+  +--------------------------+  +----------------+
+```
+
+Follow one event through the panes. It is produced in **1**, decoded from Kafka in **2**, lag in **3** rises then returns to 0, and the count in **4** goes up. The first pane where the event stops showing up is where the problem is. Only `add_to_cart` has a sink so far, so the other ES counts stay at 0.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--events` / `EVENTS=` | `add_to_cart` | Event types to stream: a name, comma list, or `all` |
+| `--interval` / `INTERVAL=` | `0.5` | Seconds between events |
+| `--topic` / `TOPIC=` | `add-to-cart-events` | Topic shown in pane 2 |
+| `--group` / `GROUP=` | `connect-add_to_cart_es_sink` | Consumer group shown in pane 3 |
+| `--every` / `EVERY=` | `2` | Refresh rate of panes 3 and 4 |
+| `--no-produce` | | Open the dashboard without starting the producer |
+
+tmux keys (prefix is `Ctrl-b`): `prefix n`/`p` switches windows, `prefix z` zooms a pane, `prefix d` detaches and leaves everything running. The mouse works for selecting and resizing panes. Run `make observe` again to re-attach, and `make observe-kill` to close it all, including the producer.
+
+Every pane is a normal make target, so you can also run any of them alone in your own shells:
+
+| Command | Shows |
+|---|---|
+| `make stream EVENTS=all` | Producer output |
+| `make kctl-follow TOPIC=...` | Messages arriving in Kafka |
+| `make sink-lag-watch` | Sink consumer lag as a compact table (`make sink-lag` for one snapshot) |
+| `make es-watch` | Elasticsearch document counts |
+| `make connect-errors` | Kafka Connect ERROR/WARN lines only |
+| `make stats` | CPU and memory per container |
+| `make docker-ui` | lazydocker: logs, restarts and shells for every container |
+
+For checking document contents rather than counts, open Kibana at http://localhost:5601 and create a data view on `add_to_cart*`. Discover then shows documents as they arrive.
 
 ## 📈 Monitoring with kafkactl
 

@@ -17,12 +17,13 @@ KAFKACTL := kafkactl -C kafkactl.yml --context ecomm-local
 
 .PHONY: help up down restart reset ps logs build bootstrap sink produce stream dev \
         connectors sink-status es-count es-indices topics subjects tail urls \
-        kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow
+        kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow \
+        es-watch observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target> [VAR=value]\n\n"} \
 	  /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@printf "\nVariables: EVENTS=$(EVENTS) COUNT=$(COUNT) INTERVAL=$(INTERVAL) TOPIC=$(TOPIC) MAX=$(MAX) GROUP=$(GROUP) SVC=<service>\n\n"
+	@printf "\nVariables: EVENTS=$(EVENTS) COUNT=$(COUNT) INTERVAL=$(INTERVAL) TOPIC=$(TOPIC) MAX=$(MAX) GROUP=$(GROUP) EVERY=$(EVERY) SVC=<service>\n\n"
 
 ## --- Lifecycle -------------------------------------------------------------
 up: ## Start infra and wait until every service is healthy
@@ -102,6 +103,10 @@ es-count: ## Document count per event alias in Elasticsearch
 	  printf "  %-14s %s\n" $$a "$$(curl -s $(ES)/$$a/_count | jq -r '.count // .error.type')"; \
 	done
 
+es-watch: ## Refresh ES doc counts every EVERY seconds (Ctrl-C to stop)
+	@command -v watch >/dev/null || { echo "watch not found: brew install watch" >&2; exit 1; }
+	@watch -t -n $(EVERY) 'echo "Elasticsearch doc counts (every $(EVERY)s)"; echo; $(MAKE) -s es-count'
+
 ## --- Monitoring with kafkactl (brew install kafkactl) -----------------------
 kctl-check:
 	@command -v kafkactl >/dev/null || { echo "kafkactl not found: brew install deviceinsight/packages/kafkactl" >&2; exit 1; }
@@ -131,8 +136,34 @@ kctl-watch: kctl-check ## Refresh a group's lag every EVERY seconds (Ctrl-C to s
 	  sleep $(EVERY); \
 	done
 
+sink-lag: kctl-check ## Compact lag table for GROUP (fits narrow panes)
+	@$(KAFKACTL) describe consumer-group $(GROUP) --print-members=false \
+	  | awk 'NF>=7 {print $$1, $$2, $$3, $$5, $$7}' \
+	  | sed '1s/.*/TOPIC PART NEWEST COMMITTED LAG/' | column -t
+
+sink-lag-watch: kctl-check ## Refresh the compact lag table every EVERY seconds
+	@watch -t -n $(EVERY) 'echo "$(GROUP) (every $(EVERY)s)"; echo; $(MAKE) -s sink-lag GROUP=$(GROUP)'
+
 kctl-consume: kctl-check ## Print the last MAX decoded messages: make kctl-consume TOPIC=purchase-events
 	@$(KAFKACTL) consume $(TOPIC) --tail $(MAX) --print-keys --print-timestamps
 
 kctl-follow: kctl-check ## Stream new decoded messages as they arrive (Ctrl-C to stop)
 	@$(KAFKACTL) consume $(TOPIC) --print-keys --print-timestamps
+
+## --- Observe the whole pipeline (tmux, watch, lazydocker) -------------------
+observe: ## tmux dashboard of every stage: make observe EVENTS=all INTERVAL=0.2
+	@bin/observe --events $(EVENTS) --interval $(INTERVAL) --topic $(TOPIC) --group $(GROUP) --every $(EVERY)
+
+observe-kill: ## Close the observe tmux session (stops its producer)
+	@bin/observe kill
+
+connect-errors: ## Follow Kafka Connect logs, ERROR/WARN lines only
+	@echo "Following kafka-connect ERROR/WARN lines. Empty means healthy."
+	@docker compose logs -f --tail=200 connect 2>&1 | grep --line-buffered -E ' (ERROR|WARN) '
+
+stats: ## Live CPU and memory per container
+	@docker stats --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}'
+
+docker-ui: ## Open lazydocker for this compose project
+	@command -v lazydocker >/dev/null || { echo "lazydocker not found: brew install lazydocker" >&2; exit 1; }
+	@lazydocker
