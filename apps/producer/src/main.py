@@ -8,15 +8,13 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 from common.registry import EVENT_REGISTRY
+from common.settings import SchemaRegistryConfig
 from settings import ProducerConfig, setup_logger
 
 logger = setup_logger()
 
 def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval: float = 1.0, limit: int = 0):
-    schema_registry_conf = {
-        "url": "http://schema-registry:8081"
-    }
-    schema_registry = SchemaRegistryClient(schema_registry_conf)
+    schema_registry = SchemaRegistryClient({"url": SchemaRegistryConfig.URL})
     value_serializers = {
         event_cls: AvroSerializer(
             schema_registry,
@@ -62,7 +60,7 @@ def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--events", type=str, help="List of event types to stream")
+    parser.add_argument("--events", type=str, help="Comma-separated event types to stream (or 'all')")
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between messages")
     parser.add_argument("--count", type=int, default=0, help="Number of messages to produce; 0 streams forever")
     parser.add_argument("--list", action="store_true")
@@ -71,10 +69,11 @@ if __name__ == "__main__":
     if args.list:
         print("\n".join(EVENT_REGISTRY.keys()))
     elif args.events:
+        names = list(EVENT_REGISTRY) if args.events == "all" else [e.strip() for e in args.events.split(",") if e.strip()]
         selected_events = []
-        for evt in args.events.split(','):
+        for evt in names:
             if evt not in EVENT_REGISTRY:
-                raise ValueError(f"Unknown event type: {evt}")
+                parser.error(f"Unknown event type: {evt}. Choose from: {', '.join(EVENT_REGISTRY)}")
             selected_events.append(EVENT_REGISTRY[evt])
 
         config = ProducerConfig()

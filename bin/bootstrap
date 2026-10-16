@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 usage() {
-    cat <<EOF
+    cat <<USAGE
 
   🏗️ READY FOR INSIGHTS — Bootstrap CLI
   -------------------------------------
   Usage:
-    bin/bootstrap up          - Start all infrastructure (Kafka, Schema Registry, ES, Kibana)
+    bin/bootstrap up          - Start all infrastructure and wait until it is healthy
     bin/bootstrap kafka       - Create Kafka topics and register schemas
     bin/bootstrap es          - Create Elasticsearch ILM policies, templates, aliases, indices
-    bin/bootstrap all         - Do everything
+    bin/bootstrap all         - Do everything (safe to re-run)
 
-EOF
+USAGE
 }
 
 bootstrap_up() {
-    echo "🚀 Starting infrastructure..."
-    docker compose up -d kafka schema-registry connect elasticsearch kibana
+    echo "🚀 Starting infrastructure (waits for healthchecks)..."
+    docker compose up -d --wait
 }
 
 bootstrap_kafka() {
@@ -35,7 +36,7 @@ bootstrap_all() {
     docker compose run --rm bootstrap
 }
 
-case "$1" in
+case "${1:-}" in
     up) bootstrap_up ;;
     kafka) bootstrap_kafka ;;
     es) bootstrap_es ;;

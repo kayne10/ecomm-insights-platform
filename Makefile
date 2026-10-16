@@ -1,0 +1,138 @@
+# One entry point for local development. Run `make` to see all targets.
+.DEFAULT_GOAL := help
+SHELL := /bin/bash
+
+EVENTS   ?= add_to_cart
+COUNT    ?= 20
+INTERVAL ?= 0.5
+SVC      ?=
+ES       ?= http://localhost:9200
+TOPIC    ?= add-to-cart-events
+MAX      ?= 10
+GROUP    ?= connect-add_to_cart_es_sink
+EVERY    ?= 2
+
+# kafkactl always uses the repo config + context, independent of your global ~/.config/kafkactl
+KAFKACTL := kafkactl -C kafkactl.yml --context ecomm-local
+
+.PHONY: help up down restart reset ps logs build bootstrap sink produce stream dev \
+        connectors sink-status es-count es-indices topics subjects tail urls \
+        kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow
+
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target> [VAR=value]\n\n"} \
+	  /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@printf "\nVariables: EVENTS=$(EVENTS) COUNT=$(COUNT) INTERVAL=$(INTERVAL) TOPIC=$(TOPIC) MAX=$(MAX) GROUP=$(GROUP) SVC=<service>\n\n"
+
+## --- Lifecycle -------------------------------------------------------------
+up: ## Start infra and wait until every service is healthy
+	docker compose up -d --wait
+	@$(MAKE) --no-print-directory urls
+
+down: ## Stop the stack (keeps data volumes)
+	docker compose down
+
+restart: ## Restart one service: make restart SVC=connect
+	docker compose restart $(SVC)
+
+reset: ## Destroy containers AND volumes (fresh Kafka + ES), then bring infra back up
+	docker compose down -v --remove-orphans
+	@$(MAKE) --no-print-directory up
+
+build: ## Rebuild the bootstrap/producer images (after requirements.txt changes)
+	docker compose --profile tools build
+
+ps: ## Show service status and health
+	docker compose ps -a
+
+logs: ## Tail logs: make logs SVC=connect (all services if SVC unset)
+	docker compose logs -f --tail=100 $(SVC)
+
+urls: ## Print local endpoints
+	@echo ""
+	@echo "  Kafka (host)       localhost:29092"
+	@echo "  Schema Registry    http://localhost:8081"
+	@echo "  Kafka Connect      http://localhost:8083"
+	@echo "  Elasticsearch      http://localhost:9200"
+	@echo "  Kibana             http://localhost:5601"
+	@echo ""
+
+## --- Pipeline --------------------------------------------------------------
+bootstrap: ## Create topics, schemas, ES policies/templates/aliases (idempotent)
+	docker compose run --rm bootstrap
+
+sink: ## Create/update all Kafka Connect connectors
+	@bin/kc wait
+	bin/kc apply-all
+
+produce: ## Send COUNT events: make produce EVENTS=add_to_cart,search COUNT=50
+	bin/stream start $(EVENTS) $(COUNT) $(INTERVAL)
+
+stream: ## Stream EVENTS forever (Ctrl-C to stop)
+	bin/stream start $(EVENTS) 0 $(INTERVAL)
+
+dev: up bootstrap sink ## Full setup: infra + bootstrap + connectors, ready to produce
+	@echo "✅ Ready. Try: make produce && make es-count"
+
+## --- Inspect ---------------------------------------------------------------
+connectors: ## List connectors and their state
+	@bin/kc list
+
+sink-status: ## Detailed status (with stack traces) of the add_to_cart sink
+	@bin/kc status add_to_cart
+
+topics: ## List Kafka topics
+	@docker compose exec kafka kafka-topics --bootstrap-server localhost:9092 --list
+
+subjects: ## List Schema Registry subjects
+	@curl -s http://localhost:8081/subjects | jq .
+
+tail: ## Print MAX decoded Avro messages: make tail TOPIC=search-events MAX=5
+	@docker compose exec -T schema-registry kafka-avro-console-consumer \
+	  --bootstrap-server kafka:9092 --topic $(TOPIC) --from-beginning --max-messages $(MAX) \
+	  --property schema.registry.url=http://localhost:8081 2>&1 | grep --line-buffered '^{' 
+
+es-indices: ## List Elasticsearch indices and aliases
+	@curl -s "$(ES)/_cat/indices?v&s=index" | grep -v '^.*\s\.'
+	@echo ""
+	@curl -s "$(ES)/_cat/aliases?v" | grep -v '\s\.'
+
+es-count: ## Document count per event alias in Elasticsearch
+	@for a in add_to_cart purchase product_view search; do \
+	  printf "  %-14s %s\n" $$a "$$(curl -s $(ES)/$$a/_count | jq -r '.count // .error.type')"; \
+	done
+
+## --- Monitoring with kafkactl (brew install kafkactl) -----------------------
+kctl-check:
+	@command -v kafkactl >/dev/null || { echo "kafkactl not found: brew install deviceinsight/packages/kafkactl" >&2; exit 1; }
+
+kctl-topics: kctl-check ## Topics with partitions and configs
+	@$(KAFKACTL) get topics -o wide
+
+kctl-topic: kctl-check ## Partitions and offsets of one topic: make kctl-topic TOPIC=search-events
+	@$(KAFKACTL) describe topic $(TOPIC)
+
+kctl-groups: kctl-check ## Consumer groups and the topics they read
+	@$(KAFKACTL) get consumer-groups -o wide
+
+kctl-group: kctl-check ## Offsets, lag and members of one group: make kctl-group GROUP=<name>
+	@$(KAFKACTL) describe consumer-group $(GROUP)
+
+kctl-lag: kctl-check ## Lag per partition for every consumer group
+	@for g in $$($(KAFKACTL) get consumer-groups -o wide | awk 'NR>1 && $$2=="consumer" {print $$1}'); do \
+	  printf "\n\033[1m%s\033[0m\n" "$$g"; \
+	  $(KAFKACTL) describe consumer-group "$$g" --print-members=false; \
+	done
+
+kctl-watch: kctl-check ## Refresh a group's lag every EVERY seconds (Ctrl-C to stop)
+	@while true; do \
+	  clear; echo "$(GROUP)  ($$(date +%T), every $(EVERY)s, Ctrl-C to stop)"; echo; \
+	  $(KAFKACTL) describe consumer-group $(GROUP); \
+	  sleep $(EVERY); \
+	done
+
+kctl-consume: kctl-check ## Print the last MAX decoded messages: make kctl-consume TOPIC=purchase-events
+	@$(KAFKACTL) consume $(TOPIC) --tail $(MAX) --print-keys --print-timestamps
+
+kctl-follow: kctl-check ## Stream new decoded messages as they arrive (Ctrl-C to stop)
+	@$(KAFKACTL) consume $(TOPIC) --print-keys --print-timestamps

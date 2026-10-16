@@ -1,0 +1,11 @@
+# kafkactl config for the local docker compose stack.
+# Used by the Makefile (`make kt-*`) via `kafkactl -C kafkactl.yml`.
+# See README "Monitoring with kafkactl" to add this context to your global config instead.
+contexts:
+  ecomm-local:
+    brokers:
+      - localhost:29092
+    schemaRegistry:
+      url: http://localhost:8081
+    clientID: kafkactl-ecomm-local
+current-context: ecomm-local

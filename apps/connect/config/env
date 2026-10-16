@@ -11,3 +11,5 @@ CONNECT_KEY_CONVERTER=org.apache.kafka.connect.storage.StringConverter
 CONNECT_VALUE_CONVERTER=io.confluent.connect.avro.AvroConverter
 CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL=http://schema-registry:8081
 CONNECT_PLUGIN_PATH=/usr/share/java,/etc/kafka-connect/jars
+# Commit sink offsets every 10s (default 60s) so consumer lag in kafkactl reflects reality quickly
+CONNECT_OFFSET_FLUSH_INTERVAL_MS=10000

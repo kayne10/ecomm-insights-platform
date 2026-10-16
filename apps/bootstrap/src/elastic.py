@@ -1,15 +1,18 @@
-import requests
-import json
+"""Create Elasticsearch ILM policies, index templates and write aliases. Safe to re-run."""
 import logging
+
+import requests
 from common.registry import EVENT_REGISTRY
+from common.settings import ElasticsearchConfig
 
-ES_HOST = "http://elasticsearch:9200"
+ES_HOST = ElasticsearchConfig.URL
 
+logging.basicConfig(level=logging.INFO, format="[Elasticsearch] %(message)s")
 logger = logging.getLogger(__name__)
+
 
 def create_ilm_policy(event_name):
     policy_name = f"{event_name}_policy"
-    url = f"{ES_HOST}/_ilm/policy/{policy_name}"
     payload = {
         "policy": {
             "phases": {
@@ -29,20 +32,18 @@ def create_ilm_policy(event_name):
         }
     }
 
-    r = requests.put(url, json=payload)
+    r = requests.put(f"{ES_HOST}/_ilm/policy/{policy_name}", json=payload)
     r.raise_for_status()
-    logger.info(f"✅ Created ILM policy: {policy_name}")
+    logger.info(f"✅ ILM policy: {policy_name}")
+
 
 def create_index_template(event_name, mapping):
     template_name = f"{event_name}_template"
-    policy_name = f"{event_name}_policy"
-    index_pattern = f"{event_name}_*"
-    url = f"{ES_HOST}/_index_template/{template_name}"
     payload = {
-        "index_patterns": [index_pattern],
+        "index_patterns": [f"{event_name}_*"],
         "template": {
             "settings": {
-                "index.lifecycle.name": policy_name,
+                "index.lifecycle.name": f"{event_name}_policy",
                 "index.lifecycle.rollover_alias": event_name,
                 "number_of_shards": 1
             },
@@ -50,29 +51,31 @@ def create_index_template(event_name, mapping):
         }
     }
 
-    r = requests.put(url, data=json.dumps(payload), headers={"Content-Type":"application/json"})
+    r = requests.put(f"{ES_HOST}/_index_template/{template_name}", json=payload)
     r.raise_for_status()
-    logger.info(f"✅ Created index template: {template_name}")
+    logger.info(f"✅ Index template: {template_name}")
+
 
 def create_index_and_alias(event_name):
-    index_name = f"{event_name}_v1-000001"
-    url = f"{ES_HOST}/{index_name}"
-    payload = {
-        "aliases": {
-            event_name: {"is_write_index": True}
-        }
-    }
+    # Skip if the write alias already exists (e.g. after a rollover or a previous bootstrap).
+    if requests.head(f"{ES_HOST}/_alias/{event_name}").status_code == 200:
+        logger.info(f"⏭️  Alias {event_name} already exists")
+        return
 
-    r = requests.put(url, data=json.dumps(payload), headers={"Content-Type":"application/json"})
+    index_name = f"{event_name}_v1-000001"
+    payload = {"aliases": {event_name: {"is_write_index": True}}}
+
+    r = requests.put(f"{ES_HOST}/{index_name}", json=payload)
     r.raise_for_status()
-    logger.info(f"✅ Created index: {index_name} with alias: {event_name}")
+    logger.info(f"✅ Index {index_name} with write alias {event_name}")
+
 
 def bootstrap_elasticsearch():
     for event_name, event_cls in EVENT_REGISTRY.items():
-        mapping = event_cls.to_es_mapping()
         create_ilm_policy(event_name)
-        create_index_template(event_name, mapping)
+        create_index_template(event_name, event_cls.to_es_mapping())
         create_index_and_alias(event_name)
+
 
 if __name__ == "__main__":
     bootstrap_elasticsearch()

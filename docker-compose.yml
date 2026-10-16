@@ -1,6 +1,14 @@
+# Local development stack.
+#
+#   docker compose up -d          -> infrastructure only (Kafka, Schema Registry, ES, Kibana, Connect)
+#   docker compose run --rm ...   -> one-shot tools (bootstrap, producer) live behind the "tools" profile
+#
+# Every infra service has a healthcheck so dependents (and `make up`) wait until it is actually ready.
+
 services:
   # Data Storage & Infra
   zookeeper:
+    container_name: zookeeper
     image: confluentinc/cp-zookeeper:7.6.1
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -12,28 +20,47 @@ services:
     container_name: kafka
     image: confluentinc/cp-kafka:7.6.1
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_started
     ports:
-      - "9092:9092"
+      # Containers use kafka:9092. Tools on your laptop use localhost:29092.
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
 
   schema-registry:
-    container_name: scchema-registry
+    container_name: schema-registry
     image: confluentinc/cp-schema-registry:7.6.1
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
       - "8081:8081"
     environment:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/subjects > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   elasticsearch:
     container_name: elasticsearch
@@ -48,10 +75,11 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:9200 || exit 1"]
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' > /dev/null || exit 1"]
       interval: 10s
       timeout: 10s
-      retries: 5
+      retries: 12
+      start_period: 20s
 
   kibana:
     container_name: kibana
@@ -61,43 +89,19 @@ services:
     ports:
       - "5601:5601"
     depends_on:
-      - elasticsearch
-
-  # Apps
-  bootstrap:
-    build:
-      context: .
-      dockerfile: ./apps/bootstrap/Dockerfile
-    depends_on:
-      - kafka
-      - schema-registry
-    volumes:
-      - ./common:/app/src/common
-      - ./apps/bootstrap/src:/app/src
-    command: ["python", "main.py"]
-
-  producer:
-    build:
-      context: .
-      dockerfile: ./apps/producer/Dockerfile
-    depends_on:
-      - kafka
-      - schema-registry
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      SCHEMA_REGISTRY_URL: http://schema-registry:8081
-    volumes:
-      - ./common:/app/src/common
-      - ./apps/producer/src:/app/src
-    command: ["python", "main.py"]
+      elasticsearch:
+        condition: service_healthy
 
   connect:
     container_name: kafka-connect
-    image: confluentinc/cp-kafka-connect:7.5.0
+    image: confluentinc/cp-kafka-connect:7.6.1
     depends_on:
-      - kafka
-      - schema-registry
-      - elasticsearch
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
     env_file:
       - ./apps/connect/config/env
     ports:
@@ -105,6 +109,54 @@ services:
     volumes:
       - ./apps/connect/plugins:/etc/kafka-connect/jars
       - ./apps/connect/connectors:/connectors
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8083/connectors > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+  # Apps (one-shot tools; run with `docker compose run --rm <name>` or the bin/ scripts)
+  bootstrap:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: ./apps/bootstrap/Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./common:/app/src/common
+      - ./apps/bootstrap/src:/app/src
+    command: ["python", "main.py"]
+
+  producer:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: ./apps/producer/Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./common:/app/src/common
+      - ./apps/producer/src:/app/src
+    command: ["python", "main.py"]
 
 volumes:
   es_data:

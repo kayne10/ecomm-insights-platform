@@ -1,42 +1,39 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 usage() {
-    cat <<EOF
+    cat <<USAGE
 
   📡 READY FOR INSIGHTS — Stream CLI
   ----------------------------------
   Usage:
-    bin/stream start <event_type>   - Start a producer for a single event type
-    bin/stream multi <e1,e2,...>    - Start multiple producers
-    bin/stream list                 - List all available event types
+    bin/stream start <events> [count] [interval]
+        events   : one event type, a comma list (add_to_cart,search), or "all"
+        count    : messages to send; 0 (default) streams until Ctrl-C
+        interval : seconds between messages (default 1.0)
+    bin/stream list               - List all available event types
 
-EOF
+  Examples:
+    bin/stream start add_to_cart 20
+    bin/stream start all 0 0.2
+
+USAGE
 }
 
 stream_start() {
-    local event=$1
-    local count=${2:-0} # optional arg to control number of messages
-    echo "🚀 Starting producer for $event"
-    docker compose run --rm producer python main.py --events "$event" --count "$count"
-}
-
-stream_multi() {
-    IFS=',' read -r -a events <<< "$1"
-    for e in "${events[@]}"; do
-        stream_start "$e" &
-    done
-    wait
+    local events=$1 count=${2:-0} interval=${3:-1.0}
+    echo "🚀 Starting producer for: $events"
+    docker compose run --rm producer python main.py --events "$events" --count "$count" --interval "$interval"
 }
 
 stream_list() {
     echo "📜 Available event types:"
-    docker compose run --rm producer python main.py --list
+    docker compose run --rm --no-deps producer python main.py --list
 }
 
-case "$1" in
-    start) stream_start "$2" "$3" ;;
-    multi) stream_multi "$2" ;;
+case "${1:-}" in
+    start|multi) [[ -n "${2:-}" ]] || { usage; exit 1; }; stream_start "$2" "${3:-0}" "${4:-1.0}" ;;
     list) stream_list ;;
     *) usage ;;
 esac

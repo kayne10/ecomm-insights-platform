@@ -5,14 +5,14 @@
     "tasks.max": "1",
     "topics": "add-to-cart-events",
     "connection.url": "http://elasticsearch:9200",
-    "type.name": "_doc",
     "key.ignore": "true",
     "schema.ignore": "true",
     "behavior.on.malformed.documents": "warn",
     "write.method": "insert",
     "max.buffered.records": "10000",
     "flush.timeout.ms": "60000",
-    "topic.index.map": "add-to-cart-events:add_to_cart",
+    "external.resource.usage": "ALIAS_INDEX",
+    "topic.to.external.resource.mapping": "add-to-cart-events:add_to_cart",
     "value.converter": "io.confluent.connect.avro.AvroConverter",
     "value.converter.schema.registry.url": "http://schema-registry:8081"
   }
