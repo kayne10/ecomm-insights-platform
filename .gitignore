@@ -1,4 +1,7 @@
-.DS_STORE
+.DS_Store
 log/
 
 __pycache__/
+
+# Duplicate common dirs from docker volumes
+apps/**/src/common/

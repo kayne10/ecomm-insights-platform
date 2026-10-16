@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+usage() {
+    cat <<USAGE
+
+  🏗️ READY FOR INSIGHTS — Bootstrap CLI
+  -------------------------------------
+  Usage:
+    bin/bootstrap up          - Start all infrastructure and wait until it is healthy
+    bin/bootstrap kafka       - Create Kafka topics and register schemas
+    bin/bootstrap es          - Create Elasticsearch ILM policies, templates, aliases, indices
+    bin/bootstrap all         - Do everything (safe to re-run)
+
+USAGE
+}
+
+bootstrap_up() {
+    echo "🚀 Starting infrastructure (waits for healthchecks)..."
+    docker compose up -d --wait
+}
+
+bootstrap_kafka() {
+    echo "📡 Bootstrapping Kafka (topics + schemas)..."
+    docker compose run --rm bootstrap python kafka.py
+}
+
+bootstrap_es() {
+    echo "📊 Bootstrapping Elasticsearch..."
+    docker compose run --rm bootstrap python elastic.py
+}
+
+bootstrap_all() {
+    bootstrap_up
+    docker compose run --rm bootstrap
+}
+
+case "${1:-}" in
+    up) bootstrap_up ;;
+    kafka) bootstrap_kafka ;;
+    es) bootstrap_es ;;
+    all) bootstrap_all ;;
+    *) usage ;;
+esac

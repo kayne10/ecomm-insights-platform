@@ -8,13 +8,13 @@ class SearchEvent(EventBase):
     topic = "search-events"
 
     fields = [
-        {"name": "event_id", "type": "string"},
-        {"name": "event_type", "type": "string"},
-        {"name": "user_id", "type": "string"},
-        {"name": "query", "type": "string"},
-        {"name": "filters", "type": {"type": "array", "items": "string"}},
-        {"name": "results_count", "type": "int"},
-        {"name": "searched_at", "type": "string", "logicalType": "timestamp-millis"}
+        {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "event_type", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "user_id", "kafka_type": "string", "es_type": "keyword"},
+        {"name": "query", "kafka_type": "string", "es_type": "text"},
+        {"name": "filters", "kafka_type": {"type": "array", "items": "string"}, "es_type": "keyword"},
+        {"name": "results_count", "kafka_type": "int", "es_type": "keyword"},
+        {"name": "searched_at", "kafka_type": "string", "logicalType": "timestamp-millis", "es_type": "date"}
     ]
 
     @classmethod

@@ -1,11 +1,14 @@
 import logging
+import os
+
+from common.settings import KafkaConfig
 
 
 class ProducerConfig:
     """
     Configuration for confluent-kafka Producer
     """
-    BOOTSTRAP_SERVERS = "kafka:9092"
+    BOOTSTRAP_SERVERS = KafkaConfig.BOOTSTRAP_SERVERS
 
     @classmethod
     def as_dict(cls):
@@ -14,10 +17,12 @@ class ProducerConfig:
         }
 
 
-def setup_logger(name: str = "producer", level=logging.INFO) -> logging.Logger:
+def setup_logger(name: str = "producer", level=None) -> logging.Logger:
     """
-    Setup and return a logger with consistent formatting
+    Setup and return a logger with consistent formatting.
+    Level defaults to the LOG_LEVEL env var (INFO if unset).
     """
+    level = level or os.getenv("LOG_LEVEL", "INFO").upper()
     logger = logging.getLogger(name)
     if not logger.handlers:  # Prevent duplicate handlers if re-imported
         handler = logging.StreamHandler()

@@ -1,39 +1,100 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Kafka Connect CLI. Connector configs live in apps/connect/connectors/<file>.json
+# and are referenced by file name (e.g. `add_to_cart`), not by the connector's internal name.
+set -euo pipefail
 
-# consider more commands for this executable such as [create-sources, create-sinks, create-topics, update-all, delete-sources, delete-sinks]
+CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"   # outside docker
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONNECTORS_DIR="$ROOT_DIR/apps/connect/connectors"
 
-CMD="$1"
+command -v jq >/dev/null || { echo "jq is required (brew install jq)" >&2; exit 1; }
 
-BASE_PATH="${PWD}/kafka/connectors/"
-ENDPOINT="http://localhost:8083"
+usage() {
+  cat <<USAGE
+Kafka Connect CLI
 
-# create_connectors() {}
+Usage:
+  kc list                       List connectors with their state
+  kc apply <file>               Create or update connector from <file>.json
+  kc apply-all                  Apply every connector in apps/connect/connectors
+  kc status <file>              Show connector + task status (incl. task errors)
+  kc restart <file>             Restart connector and its failed tasks
+  kc delete <file>              Delete connector
+  kc wait                       Block until the Connect REST API is up
 
-case $CMD in
-    source)
-	echo "Creating kafka-connect source connectors"
-	find "${BASE_PATH}/source" -name "*.json" -print0 | while read -d $'\0' connector; do
-	    NAME=$(jq -r '.name' $connector)
-	    CONFIG=$(jq -r '.config' $connector)
-	    curl -s -X PUT "${ENDPOINT}/connectors/${NAME}/config" \
-		-H 'Accept: application/json' \
-		-H 'Content-Type: application/json' \
-		-d "$CONFIG"
-	done
-	;;
-    sink)
-	echo "Creating kafka-connect sink connectors"
-	find "${BASE_PATH}/sink" -name "*.json" -print0 | while read -d $'\0' connector; do
-	    NAME=$(jq -r '.name' $connector)
-            CONFIG=$(jq -r '.config' $connector)
-            curl -s -X PUT "${ENDPOINT}/connectors/${NAME}/config" \
-                -H 'Accept: application/json' \
-                -H 'Content-Type: application/json' \
-                -d "$CONFIG"
-        done
-	;;
-    *)
-	echo "Command not found. Options are [source,sink]"
-	exec "$@"
-	;;
+Examples:
+  kc apply add_to_cart
+  kc status add_to_cart
+
+READY FOR INSIGHTS?
+USAGE
+}
+
+config_file() {
+  local file="$CONNECTORS_DIR/$1.json"
+  [[ -f "$file" ]] || { echo "Config file not found: $file" >&2; exit 1; }
+  echo "$file"
+}
+
+connector_name() { jq -r '.name' "$(config_file "$1")"; }
+
+wait_for_connect() {
+  printf "Waiting for Kafka Connect at %s" "$CONNECT_URL"
+  for _ in $(seq 1 60); do
+    if curl -sf "$CONNECT_URL/connectors" >/dev/null; then echo " ✅"; return 0; fi
+    printf "."; sleep 2
+  done
+  echo " ❌ timed out" >&2; exit 1
+}
+
+list_connectors() {
+  curl -sf "$CONNECT_URL/connectors?expand=status" \
+    | jq -r 'to_entries[] | "\(.key)\t\(.value.status.connector.state)\ttasks: \([.value.status.tasks[].state] | join(","))"'
+}
+
+apply_connector() {
+  local file name
+  file="$(config_file "$1")"
+  name="$(connector_name "$1")"
+  echo "Applying connector: $name"
+  # PUT /config is an upsert: creates the connector if missing, updates it otherwise.
+  jq '.config' "$file" \
+    | curl -s -X PUT "$CONNECT_URL/connectors/$name/config" \
+        -H "Content-Type: application/json" --data @- \
+    | jq '{name, tasks: [.tasks[]?.task], error_code, message}'
+}
+
+apply_all() {
+  for f in "$CONNECTORS_DIR"/*.json; do
+    apply_connector "$(basename "$f" .json)"
+  done
+}
+
+status_connector() {
+  curl -s "$CONNECT_URL/connectors/$(connector_name "$1")/status" | jq .
+}
+
+restart_connector() {
+  curl -s -X POST "$CONNECT_URL/connectors/$(connector_name "$1")/restart?includeTasks=true&onlyFailed=true" | jq .
+}
+
+delete_connector() {
+  local name; name="$(connector_name "$1")"
+  echo "Deleting connector: $name"
+  curl -s -X DELETE "$CONNECT_URL/connectors/$name"
+  echo
+}
+
+need_arg() { [[ -n "${2:-}" ]] || { echo "Usage: kc $1 <file>" >&2; exit 1; }; }
+
+cmd="${1:-}"
+case "$cmd" in
+  list) list_connectors ;;
+  apply|create) need_arg "$cmd" "${2:-}"; apply_connector "$2" ;;
+  apply-all|create-all) apply_all ;;
+  status) need_arg "$cmd" "${2:-}"; status_connector "$2" ;;
+  restart) need_arg "$cmd" "${2:-}"; restart_connector "$2" ;;
+  delete) need_arg "$cmd" "${2:-}"; delete_connector "$2" ;;
+  wait) wait_for_connect ;;
+  *) usage ;;
 esac

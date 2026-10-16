@@ -1,101 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-# ---------------------------------------------
-# Configuration
-# ---------------------------------------------
-BOOTSTRAP_CONTAINER="bootstrap"
-KAFKA_SERVICES=("zookeeper" "kafka" "schema-registry")
-EVENTS=("add_to_cart,purchase,product_view,search")
-
-# ---------------------------------------------
-# Functions
-# ---------------------------------------------
-
-# Placeholder art
-ascii_ready() {
-cat << "EOF"
-
-██████╗ ███████╗ █████╗ ██████╗ ██╗   ██╗    ███████╗ ██████╗ 
-██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝    ██╔════╝██╔═══██╗
-██████╔╝█████╗  ███████║██████╔╝ ╚████╔╝     █████╗  ██║   ██║
-██╔═══╝ ██╔══╝  ██╔══██║██╔═══╝   ╚██╔╝      ██╔══╝  ██║   ██║
-██║     ███████╗██║  ██║██║        ██║       ███████╗╚██████╔╝
-╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝        ╚═╝       ╚══════╝ ╚═════╝ 
-                                                            
-                  READY FOR INSIGHTS 🚀
-EOF
-}
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 usage() {
-    echo "Usage: $0 <command>"
-    echo ""
-    echo "Commands:"
-    echo "  bootstrap        Create Kafka topics and register schemas"
-    echo "  produce <events> Start a producer to send a list of events to platform"
-    echo "  status           Check status of Kafka, Zookeeper, and Schema Registry"
-    echo "  logs <name>      Tail logs for a producer service (default: ${PRODUCERS[0]})"
-    echo "  help             Show this help message"
-    echo ""
-    echo "Example:"
-    echo "  $0 bootstrap"
-    echo "  $0 produce add_to_cart,purchase,product_view,search"
-    echo "  $0 logs producer-<container_id>"
+    cat <<USAGE
+
+  📡 READY FOR INSIGHTS — Stream CLI
+  ----------------------------------
+  Usage:
+    bin/stream start <events> [count] [interval]
+        events   : one event type, a comma list (add_to_cart,search), or "all"
+        count    : messages to send; 0 (default) streams until Ctrl-C
+        interval : seconds between messages (default 1.0)
+    bin/stream list               - List all available event types
+
+  Examples:
+    bin/stream start add_to_cart 20
+    bin/stream start all 0 0.2
+
+USAGE
 }
 
-bootstrap() {
-    echo "🚀 Bootstrapping Kafka environment..."
-    docker compose run --rm "$BOOTSTRAP_CONTAINER"
-    ascii_ready
-    echo "✅ Kafka environment is ready to stream!"
-    echo "Start a producer with:"
-    echo "  bin/stream produce ${EVENTS}"
+stream_start() {
+    local events=$1 count=${2:-0} interval=${3:-1.0}
+    echo "🚀 Starting producer for: $events"
+    docker compose run --rm producer python main.py --events "$events" --count "$count" --interval "$interval"
 }
 
-produce() {
-    local events=${1:-${EVENTS}}
-    echo "Starting a producer to emit $events"
-    docker compose run --rm producer python main.py --events $events
+stream_list() {
+    echo "📜 Available event types:"
+    docker compose run --rm --no-deps producer python main.py --list
 }
 
-status() {
-    echo "📊 Checking Kafka environment..."
-    docker compose ps
-}
-
-logs() {
-    local service="${1}"
-    echo "📄 Tailing logs for $service..."
-    docker compose logs -f "$service"
-}
-
-# ---------------------------------------------
-# CLI argument parsing
-# ---------------------------------------------
-if [ $# -lt 1 ]; then
-    usage
-    exit 1
-fi
-
-case "$1" in
-    bootstrap)
-        bootstrap
-        ;;
-    produce)
-        produce
-        ;;
-    status)
-        status
-        ;;
-    logs)
-        logs "${2:-}"
-        ;;
-    help)
-        usage
-        ;;
-    *)
-        echo "Unknown command: $1"
-        usage
-        exit 1
-        ;;
+case "${1:-}" in
+    start|multi) [[ -n "${2:-}" ]] || { usage; exit 1; }; stream_start "$2" "${3:-0}" "${4:-1.0}" ;;
+    list) stream_list ;;
+    *) usage ;;
 esac
