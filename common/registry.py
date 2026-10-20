@@ -1,4 +1,5 @@
 from common.events.add_to_cart import AddToCartEvent
+from common.events.cart_abandoned import CartAbandonedEvent
 from common.events.checkout_started import CheckoutStartedEvent
 from common.events.product_review import ProductReviewEvent
 from common.events.product_view import ProductViewEvent
@@ -20,5 +21,11 @@ EVENT_REGISTRY = {
         PurchaseEvent,
         RefundEvent,
         ProductReviewEvent,
+        # Derived (produced_by is set): emitted by the Flink job, never by the producer.
+        CartAbandonedEvent,
     ]
 }
+
+
+# Event types the fake-data producer can generate.
+GENERATED_EVENTS = {name: cls for name, cls in EVENT_REGISTRY.items() if cls.produced_by is None}

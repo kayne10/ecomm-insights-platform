@@ -5,6 +5,15 @@
 #
 # Every infra service has a healthcheck so dependents (and `make up`) wait until it is actually ready.
 
+x-flink-properties: &flink-properties |
+  jobmanager.rpc.address: flink-jobmanager
+  parallelism.default: 1
+  taskmanager.numberOfTaskSlots: 2
+  jobmanager.memory.process.size: 1024m
+  taskmanager.memory.process.size: 1280m
+  execution.checkpointing.dir: file:///tmp/flink-checkpoints
+  restart-strategy.type: exponential-delay
+
 services:
   # Data Storage & Infra
   zookeeper:
@@ -161,6 +170,49 @@ services:
       - ./common:/app/src/common
       - ./apps/producer/src:/app/src
     command: ["python", "main.py"]
+
+  # Stream processing (profile "flink"; started by `make flink` after bootstrap,
+  # because the job reads its Avro schemas from Schema Registry at startup)
+  flink-jobmanager:
+    profiles: ["flink"]
+    container_name: flink-jobmanager
+    build:
+      context: ./apps/flink-cart-abandonment
+    image: ecomm/flink-cart-abandonment:local
+    # Application mode: the JobManager runs the job jar baked into the image.
+    command: standalone-job --job-classname com.ecomm.insights.abandonment.CartAbandonmentJob
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8082:8081"   # Flink web UI; 8081 on the host is Schema Registry
+    environment:
+      FLINK_PROPERTIES: *flink-properties
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # Short for local demos; a real shop would use ~15-60 min. Purchases in the
+      # producer only complete carts younger than 45 s (common/events/catalog.py).
+      ABANDONMENT_TIMEOUT: 2 min
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/jobs/overview | grep -q RUNNING || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+
+  flink-taskmanager:
+    profiles: ["flink"]
+    container_name: flink-taskmanager
+    image: ecomm/flink-cart-abandonment:local
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      FLINK_PROPERTIES: *flink-properties
+    restart: on-failure
 
 volumes:
   es_data:

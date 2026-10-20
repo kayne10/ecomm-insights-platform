@@ -13,8 +13,12 @@ Imagine orders from an online e-commerce site get emitted to Kafka. This data ar
  | producer    | ------------> |    Kafka     | -------------> | Elasticsearch | --> | Kibana |
  | (fake data) |               | topic/event  |  Kafka Connect |  alias/event  |     |        |
  +-------------+               +--------------+                +---------------+     +--------+
-        |                             |
-        +------- Schema Registry -----+
+        |                         |        ^
+        +--- Schema Registry -----+        | cart_abandoned
+                                  v        |
+                           +-------------------------+
+                           | Flink: cart abandonment |  checkout without purchase within the timeout
+                           +-------------------------+
 ```
 
 | Service         | From your laptop          | From containers              |
@@ -25,6 +29,7 @@ Imagine orders from an online e-commerce site get emitted to Kafka. This data ar
 | Elasticsearch   | http://localhost:9200     | http://elasticsearch:9200    |
 | Kibana          | http://localhost:5601     |                              |
 | Insights dashboard | http://localhost:5601/app/dashboards#/view/ecomm-insights | |
+| Flink web UI    | http://localhost:8082     | http://flink-jobmanager:8081 |
 
 ## 📦 Quick start
 
@@ -46,6 +51,8 @@ Run `make` with no arguments to list every target. The common ones:
 |---|---|
 | `make up` / `make down` | Start (waiting for healthchecks) / stop the infrastructure |
 | `make reset` | Wipe all containers **and volumes**, then start fresh |
+| `make flink` / `make flink-status` | Build and (re)start the Flink job / job state and cart counters |
+| `make flink-test` | Java unit tests and format check in a Maven container, no local JDK needed |
 | `make bootstrap` | Create topics, register schemas, create ES ILM policies, templates and write aliases. Safe to re-run. |
 | `make sink` | Create or update every connector in `apps/connect/connectors/` |
 | `make produce EVENTS=add_to_cart,search COUNT=50 INTERVAL=0.1` | Send a fixed number of events. `EVENTS=all` uses every event type. |
@@ -78,9 +85,10 @@ This opens a tmux session called `ecomm-observe` with three windows:
  window "pipeline"              window "health"                window "docker"
 +-------------+-------------+  +--------------------------+  +----------------+
 | 1 producer  | 2 kafka     |  | kafka-connect ERROR/WARN |  |   lazydocker   |
-+-------------+-------------+  +--------------------------+  |                |
-| 3 sink lag  | 4 ES counts |  | container CPU / memory   |  |                |
-+-------------+-------------+  +--------------------------+  +----------------+
++-------------+-------------+  +------------+-------------+  |                |
+| 3 sink lag  | 4 ES counts |  | flink job  | container   |  |                |
+|             |             |  | + counters | CPU/memory  |  |                |
++-------------+-------------+  +------------+-------------+  +----------------+
 ```
 
 Follow one event through the panes. It is produced in **1**, decoded from Kafka in **2**, lag in **3** rises then returns to 0, and the count in **4** goes up. The first pane where the event stops showing up is where the problem is. Panes 3 and 4 cover every event type.
@@ -179,6 +187,7 @@ To use plain `kafkactl` anywhere, copy the `ecomm-local` context into `~/.config
 | `apps/producer/` | Streams generated events to Kafka as Avro |
 | `apps/bootstrap/src/connect.py` | Generates one Elasticsearch sink connector per registered event |
 | `apps/bootstrap/src/kibana.py` | Generates the Kibana data views and the Ecomm Insights dashboard |
+| `apps/flink-cart-abandonment/` | Java Flink job that detects abandoned carts ([README](apps/flink-cart-abandonment/README.md)) |
 | `apps/connect/connectors/*.json` | Optional hand-written connectors, applied by `make sink` |
 | `apps/connect/plugins/` | Elasticsearch sink connector jars |
 
@@ -194,6 +203,7 @@ To use plain `kafkactl` anywhere, copy the `ecomm-local` context into `~/.config
 | `purchase` | `purchase-events` | 1 | order_id, amount, currency |
 | `refund` | `refund-events` | 0.2 | order_id, product, amount, reason |
 | `product_review` | `product-review-events` | 0.5 | product, rating 1-5, title and body as full text, verified_purchase |
+| `cart_abandoned` | `cart-abandoned-events` | produced by Flink | cart, products, cart_value, checkout_at, timeout_seconds |
 
 `bin/stream list` prints the same list from the registry.
 
@@ -243,6 +253,24 @@ That creates its topic, Avro schema, ES ILM policy, template and write alias, an
 
 Changing the fields of an event that already exists will be rejected by Schema Registry unless the change is backward compatible. For example, a new field needs a default. During local development, `make reset` starts over.
 
+## 🌊 Flink: cart abandonment
+
+`apps/flink-cart-abandonment` is a Java 17 / Flink 2.2 job. It joins `checkout_started` and `purchase` by `cart_id`. When a checkout has no purchase within `ABANDONMENT_TIMEOUT` of event time, it emits a `cart_abandoned` event. The timeout is 2 minutes locally. That event is an ordinary registered event: bootstrap creates its topic, schema, index, `events-cart` alias and `cart_abandoned_es_sink`, and it appears on the dashboard.
+
+```bash
+make dev            # includes `make flink`
+make observe        # streams all events; the health window shows the Flink job
+make flink-status   # e.g. cartsAbandoned: 18, cartsConverted: 116
+```
+
+How the data supports it:
+
+* **Purchases link to checkouts.** `checkout_started` opens a cart and `purchase` completes a recent one with the same `cart_id`, user and amount. Carts that are never completed are the abandoned ones. With the default weights that is about 40% in the long run, and a few minutes of traffic typically lands between 25% and 40%.
+* **`cart_id` on `purchase` is optional.** It was added as a nullable field with a default, a backward-compatible change that Schema Registry accepted as version 2. Older purchases without it are ignored by the job.
+* **Event classes own the schemas.** The job reads its Avro schemas from Schema Registry at startup instead of keeping copies, so `make bootstrap` must run before `make flink`. `make dev` does that.
+
+Flink services are behind the `flink` compose profile, so `make up` doesn't need the job to be ready. The [app README](apps/flink-cart-abandonment/README.md) covers the detector logic, edge cases, configuration and design choices.
+
 ## 📊 Kibana dashboard
 
 `make dev` creates it, and `make dashboards` re-creates it on its own:
@@ -254,6 +282,7 @@ http://localhost:5601/app/dashboards#/view/ecomm-insights
 |---|---|
 | KPIs | Revenue, orders, average order value, view-to-purchase conversion, refunded amount, average rating |
 | Traffic | Live event stream by type, shopping funnel from view to cart to checkout to purchase |
+| Cart abandonment | Abandoned value, abandonment rate, abandoned carts, average abandoned cart, purchased vs abandoned over time, most abandoned products, customers with the most abandoned value |
 | Money | Revenue over time, top customers by spend |
 | Sentiment | Refund reasons, review ratings, top search terms |
 | Products | Product views by category, most added-to-cart products, refunded revenue by category |
@@ -300,5 +329,6 @@ class ProductViewEvent(EventBase):
 
 * Migrate the original events' own time fields from `keyword` to `date` (needs new indices)
 * Add Postgres consumers
-* Add Flink streaming jobs
+* More Flink jobs: session summaries, trending products
+* Persist Flink checkpoints in a volume so in-flight carts survive restarts
 * Add Grafana dashboards for infrastructure metrics

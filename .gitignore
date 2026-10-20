@@ -5,3 +5,5 @@ __pycache__/
 
 # Duplicate common dirs from docker volumes
 apps/**/src/common/
+# Java build output
+apps/**/target/
