@@ -4,6 +4,8 @@ This project is a local event streaming playground for experimenting with Kafka,
 
 Imagine orders from an online e-commerce site get emitted to Kafka. This data architecture is designed to process and ingest web orders at scale in real time. The targeted data marts are highly reliable for quick data-driven insights on products and customers. Insights Dashboard provides reports on which customers spent the most and which products earned and sold the most.
 
+![Ecomm Insights dashboard](docs/images/kibana-dashboard.png)
+
 ## 🏗️ Architecture
 
 ```
@@ -22,6 +24,7 @@ Imagine orders from an online e-commerce site get emitted to Kafka. This data ar
 | Kafka Connect   | http://localhost:8083     | http://connect:8083          |
 | Elasticsearch   | http://localhost:9200     | http://elasticsearch:9200    |
 | Kibana          | http://localhost:5601     |                              |
+| Insights dashboard | http://localhost:5601/app/dashboards#/view/ecomm-insights | |
 
 ## 📦 Quick start
 
@@ -32,7 +35,7 @@ brew install deviceinsight/packages/kafkactl tmux watch lazydocker
 ```
 
 ```bash
-make dev        # start infra, wait for health, bootstrap topics/schemas/ES, apply connectors
+make dev        # start infra, bootstrap topics/schemas/ES, create sinks and the Kibana dashboard
 make produce    # send 20 add_to_cart events
 make es-count   # see them land in Elasticsearch
 ```
@@ -66,7 +69,7 @@ The `bin/` scripts are still available for finer control: `bin/bootstrap`, `bin/
 
 ```bash
 make dev        # once, if the stack isn't up
-make observe    # or: bin/observe --events all --interval 0.2
+make observe    # streams all event types; or: bin/observe --events search --interval 0.2
 ```
 
 This opens a tmux session called `ecomm-observe` with three windows:
@@ -80,14 +83,13 @@ This opens a tmux session called `ecomm-observe` with three windows:
 +-------------+-------------+  +--------------------------+  +----------------+
 ```
 
-Follow one event through the panes. It is produced in **1**, decoded from Kafka in **2**, lag in **3** rises then returns to 0, and the count in **4** goes up. The first pane where the event stops showing up is where the problem is. Only `add_to_cart` has a sink so far, so the other ES counts stay at 0.
+Follow one event through the panes. It is produced in **1**, decoded from Kafka in **2**, lag in **3** rises then returns to 0, and the count in **4** goes up. The first pane where the event stops showing up is where the problem is. Panes 3 and 4 cover every event type.
 
 | Option | Default | Purpose |
 |---|---|---|
-| `--events` / `EVENTS=` | `add_to_cart` | Event types to stream: a name, comma list, or `all` |
+| `--events` / `EVENTS=` | `all` | Event types to stream: a name, comma list, or `all` |
 | `--interval` / `INTERVAL=` | `0.5` | Seconds between events |
 | `--topic` / `TOPIC=` | `add-to-cart-events` | Topic shown in pane 2 |
-| `--group` / `GROUP=` | `connect-add_to_cart_es_sink` | Consumer group shown in pane 3 |
 | `--every` / `EVERY=` | `2` | Refresh rate of panes 3 and 4 |
 | `--no-produce` | | Open the dashboard without starting the producer |
 
@@ -99,13 +101,13 @@ Every pane is a normal make target, so you can also run any of them alone in you
 |---|---|
 | `make stream EVENTS=all` | Producer output |
 | `make kctl-follow TOPIC=...` | Messages arriving in Kafka |
-| `make sink-lag-watch` | Sink consumer lag as a compact table (`make sink-lag` for one snapshot) |
+| `make sink-lag-watch` | Lag of every ES sink in one table (`make sink-lag` for one snapshot) |
 | `make es-watch` | Elasticsearch document counts |
 | `make connect-errors` | Kafka Connect ERROR/WARN lines only |
 | `make stats` | CPU and memory per container |
 | `make docker-ui` | lazydocker: logs, restarts and shells for every container |
 
-For checking document contents rather than counts, open Kibana at http://localhost:5601 and create a data view on `add_to_cart*`. Discover then shows documents as they arrive.
+For the business view, keep the [Kibana dashboard](#-kibana-dashboard) open beside it. It refreshes every 10 seconds.
 
 ## 📈 Monitoring with kafkactl
 
@@ -122,7 +124,7 @@ The repo ships a [`kafkactl.yml`](kafkactl.yml) with an `ecomm-local` context po
 | `make kctl-consume TOPIC=purchase-events MAX=5` | The last `MAX` messages, with key and timestamp |
 | `make kctl-follow TOPIC=purchase-events` | New messages as they arrive |
 
-`GROUP` defaults to `connect-add_to_cart_es_sink`, the consumer group of the Elasticsearch sink. Kafka Connect names sink groups `connect-<connector name>`.
+`GROUP` defaults to `connect-add_to_cart_es_sink`. Each event's sink is a connector named `<event>_es_sink`, and Kafka Connect names its consumer group `connect-<connector name>`, e.g. `GROUP=connect-refund_es_sink`.
 
 ### Reading consumer lag
 
@@ -141,10 +143,10 @@ Kafka Connect commits sink offsets every 10 seconds here (`CONNECT_OFFSET_FLUSH_
 To watch the sink catch up, pause it, produce, then resume:
 
 ```bash
-curl -X PUT localhost:8083/connectors/add_to_cart_es_sink/pause
+bin/kc pause add_to_cart
 make produce COUNT=50
 make kctl-group            # LAG = 50
-curl -X PUT localhost:8083/connectors/add_to_cart_es_sink/resume
+bin/kc resume add_to_cart
 make kctl-watch            # LAG drains to 0
 ```
 
@@ -175,17 +177,90 @@ To use plain `kafkactl` anywhere, copy the `ecomm-local` context into `~/.config
 | `common/settings.py` | Shared connection settings (env-overridable) |
 | `apps/bootstrap/` | Creates topics, schemas and ES resources from the registry |
 | `apps/producer/` | Streams generated events to Kafka as Avro |
-| `apps/connect/connectors/*.json` | Kafka Connect connector configs (one file per connector) |
+| `apps/bootstrap/src/connect.py` | Generates one Elasticsearch sink connector per registered event |
+| `apps/bootstrap/src/kibana.py` | Generates the Kibana data views and the Ecomm Insights dashboard |
+| `apps/connect/connectors/*.json` | Optional hand-written connectors, applied by `make sink` |
 | `apps/connect/plugins/` | Elasticsearch sink connector jars |
+
+## 🧾 Event types
+
+| Event | Topic | Weight | Notable fields |
+|---|---|---|---|
+| `product_view` | `product-view-events` | 10 | product, category, price |
+| `search` | `search-events` | 5 | query, filters, results_count |
+| `add_to_cart` | `add-to-cart-events` | 3 | product, quantity |
+| `remove_from_cart` | `remove-from-cart-events` | 1.5 | product, category, quantity |
+| `checkout_started` | `checkout-started-events` | 1.5 | cart_id, product_ids, item_count, cart_value |
+| `purchase` | `purchase-events` | 1 | order_id, amount, currency |
+| `refund` | `refund-events` | 0.2 | order_id, product, amount, reason |
+| `product_review` | `product-review-events` | 0.5 | product, rating 1-5, title and body as full text, verified_purchase |
+
+`bin/stream list` prints the same list from the registry.
+
+* **Weight** is the relative frequency when one producer streams several types, so `EVENTS=all` looks like real traffic: mostly views and searches, very few refunds.
+* **Shared catalog.** Every event draws customers and products from `common/events/catalog.py`. A SKU always has the same price and category. Activity is skewed like a real shop: 100 loyal customers and 40 bestsellers get a large share of events, so "top customers" and "top products" are meaningful.
+* **One time field.** Every document gets a `@timestamp` date from the `events-enrich` ingest pipeline. It is copied from `timestamp`, `viewed_at` or `searched_at`, or set to the ingest time. The original events still store their own time fields as `keyword`, so use `@timestamp` for time filters.
+* **Document ids.** Sinks use the Kafka key, which is the `event_id`, as the Elasticsearch `_id`. Replays overwrite instead of duplicating, and wiping Kafka can't clobber older documents.
+
+### Searching across event types
+
+Bootstrap adds read-only search aliases on top of each event's own alias:
+
+| Alias | Covers |
+|---|---|
+| `events` | All event types |
+| `events-browsing` | product_view, search |
+| `events-cart` | add_to_cart, remove_from_cart, checkout_started |
+| `events-orders` | purchase, refund |
+| `events-feedback` | product_review |
+| `<event>` | One event type, e.g. `refund` (this is also the sink's write alias) |
+
+```bash
+make es-search Q='user_id:user-42'                     # one customer's whole journey
+make es-search Q='reason:damaged OR rating:1' SIZE=10   # unhappy customers, across event types
+curl -s 'localhost:9200/events-orders/_search?q=amount:>400&sort=@timestamp:desc' | jq .
+```
+
+A domain comes from the event class's `domain` attribute. Index templates attach the aliases, so rolled-over indices join automatically.
+
+### Running several producers
+
+One producer can stream any mix of types, and you can run as many as you like in separate shells:
+
+```bash
+make stream EVENTS=all INTERVAL=0.1                        # realistic weighted mix
+make stream EVENTS=product_view,search INTERVAL=0.05      # browsing traffic
+make stream EVENTS=checkout_started,purchase,refund        # order lifecycle
+```
 
 ## 🛠️ Adding new events
 
-1. Create a class in `common/events/` that extends `EventBase`, with `name`, `topic`, `fields` and `generate()`.
-2. Add it to `common/registry.py`.
-3. Run `make bootstrap` to create its topic, schema, ES template and write alias.
-4. To sink it to Elasticsearch, copy `apps/connect/connectors/add_to_cart.json`, change `name`, `topics` and `topic.to.external.resource.mapping` (`<topic>:<event name>`), then run `make sink`.
+1. Create a class in `common/events/` that extends `EventBase`, with `name`, `topic`, `fields`, `generate()`, and optionally `weight` and `domain` (which `events-<domain>` alias it joins). Use the helpers in `catalog.py` for ids, users, products and timestamps.
+2. Add it to the list in `common/registry.py`.
+3. Run `make bootstrap && make sink`.
 
-The sink writes to the alias created by bootstrap (`external.resource.usage: ALIAS_INDEX`), so documents go to the ILM-managed `<event>_v1-000001` index. Connector 15.x ignores the old `topic.index.map` setting and rejects topic-renaming transforms, so use the mapping setting above.
+That creates its topic, Avro schema, ES ILM policy, template and write alias, and its `<event>_es_sink` connector. No connector JSON is needed. The sink writes to the alias (`external.resource.usage: ALIAS_INDEX`), so documents land in the ILM-managed `<event>_v1-000001` index. Connector 15.x ignores the old `topic.index.map` setting and rejects topic-renaming transforms.
+
+Changing the fields of an event that already exists will be rejected by Schema Registry unless the change is backward compatible. For example, a new field needs a default. During local development, `make reset` starts over.
+
+## 📊 Kibana dashboard
+
+`make dev` creates it, and `make dashboards` re-creates it on its own:
+http://localhost:5601/app/dashboards#/view/ecomm-insights
+
+![Ecomm Insights dashboard in Kibana](docs/images/kibana-dashboard.png)
+
+| Row | Panels |
+|---|---|
+| KPIs | Revenue, orders, average order value, view-to-purchase conversion, refunded amount, average rating |
+| Traffic | Live event stream by type, shopping funnel from view to cart to checkout to purchase |
+| Money | Revenue over time, top customers by spend |
+| Sentiment | Refund reasons, review ratings, top search terms |
+| Products | Product views by category, most added-to-cart products, refunded revenue by category |
+
+It shows the last 30 minutes and auto-refreshes every 10 seconds. Run `make observe` alongside it to watch it move. Bootstrap also creates a data view per search alias for exploring raw documents in Discover. For example, "Orders events" is purchases plus refunds.
+
+The dashboard is generated by `apps/bootstrap/src/kibana.py`, so it's reproducible. To change a panel, edit `panels()` and run `make dashboards`. That overwrites the dashboard. To customise it by hand in Kibana, use **Save as** so your copy survives.
 
 ## 🎨 Example event (ProductView)
 
@@ -216,14 +291,14 @@ class ProductViewEvent(EventBase):
 ## 🩺 Troubleshooting
 
 * **A service never turns healthy.** Run `make ps`, then `make logs SVC=<name>`. Elasticsearch and Connect need the most memory.
-* **Connector task is FAILED.** `make sink-status` shows the stack trace. Fix the JSON, then `make sink` and `bin/kc restart add_to_cart`.
+* **Connector task is FAILED.** `make sink-status SINK=<event>` shows the stack trace. Fix the cause, then `make sink` and `bin/kc restart <event>`.
 * **Bootstrap fails on Elasticsearch after an alias was deleted manually.** Run `make reset` to start from clean volumes.
 * **kafkactl hangs or reports `connection refused` on 9092.** Your context points at the container-internal port. Use `localhost:29092`.
 * **Port already in use.** Another local Kafka/ES is running. Stop it, or change the left-hand port in `docker-compose.yml`.
 
 ## 🔮 Roadmap
 
-* Sink connectors for purchase, product_view and search
+* Migrate the original events' own time fields from `keyword` to `date` (needs new indices)
 * Add Postgres consumers
 * Add Flink streaming jobs
-* Add Grafana / Kibana dashboards for analytics
+* Add Grafana dashboards for infrastructure metrics

@@ -21,3 +21,11 @@ class SchemaRegistryConfig:
 
 class ElasticsearchConfig:
     URL = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
+
+
+class ConnectConfig:
+    URL = os.getenv("CONNECT_URL", "http://connect:8083")
+
+
+class KibanaConfig:
+    URL = os.getenv("KIBANA_URL", "http://kibana:5601")

@@ -1,11 +1,12 @@
-from datetime import datetime
 import random
-import uuid
+from common.events import catalog
 from common.events.event_base import EventBase
 
 class ProductViewEvent(EventBase):
     name = "product_view"
     topic = "product-view-events"
+    weight = 10
+    domain = "browsing"
 
     fields = [
         {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
@@ -20,13 +21,15 @@ class ProductViewEvent(EventBase):
 
     @classmethod
     def generate(cls):
+        sku = catalog.random_sku()
+        item = catalog.product(sku)
         return {
-            "event_id": str(uuid.uuid4()),
+            "event_id": catalog.new_id(),
             "event_type": cls.name,
-            "user_id": f"user-{random.randint(1, 5000)}",
-            "session_id": str(uuid.uuid4()),
-            "product_id": f"prod-{random.randint(1000, 9999)}",
-            "category": random.choice(["electronics", "fashion", "home", "toys"]),
-            "price": round(random.uniform(10, 500), 2),
-            "viewed_at": datetime.utcnow().isoformat(),
+            "user_id": catalog.random_user(),
+            "session_id": catalog.new_id(),
+            "product_id": sku,
+            "category": item["category"],
+            "price": item["price"],
+            "viewed_at": catalog.now_iso(),
         }

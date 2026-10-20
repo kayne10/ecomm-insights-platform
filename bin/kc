@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Kafka Connect CLI. Connector configs live in apps/connect/connectors/<file>.json
-# and are referenced by file name (e.g. `add_to_cart`), not by the connector's internal name.
+# Kafka Connect CLI.
+# <name> is either an event name (e.g. `refund`, for the generated `refund_es_sink`)
+# or a hand-written config in apps/connect/connectors/<name>.json.
 set -euo pipefail
 
 CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"   # outside docker
@@ -15,16 +16,19 @@ Kafka Connect CLI
 
 Usage:
   kc list                       List connectors with their state
-  kc apply <file>               Create or update connector from <file>.json
-  kc apply-all                  Apply every connector in apps/connect/connectors
-  kc status <file>              Show connector + task status (incl. task errors)
-  kc restart <file>             Restart connector and its failed tasks
-  kc delete <file>              Delete connector
+  kc apply <file>               Create or update connector from apps/connect/connectors/<file>.json
+  kc apply-all                  Apply every .json in apps/connect/connectors
+  kc status <name>              Show connector + task status (incl. task errors)
+  kc restart <name>             Restart connector and its failed tasks
+  kc pause|resume <name>        Pause or resume a connector
+  kc delete <name>              Delete connector
   kc wait                       Block until the Connect REST API is up
 
+Generated Elasticsearch sinks are created with `make sink`.
+
 Examples:
-  kc apply add_to_cart
-  kc status add_to_cart
+  kc status refund
+  kc pause add_to_cart
 
 READY FOR INSIGHTS?
 USAGE
@@ -36,7 +40,13 @@ config_file() {
   echo "$file"
 }
 
-connector_name() { jq -r '.name' "$(config_file "$1")"; }
+connector_name() {
+  local file="$CONNECTORS_DIR/$1.json"
+  if [[ -f "$file" ]]; then jq -r '.name' "$file"
+  elif [[ "$1" == *_es_sink ]]; then echo "$1"
+  else echo "$1_es_sink"   # generated sink for event <name>
+  fi
+}
 
 wait_for_connect() {
   printf "Waiting for Kafka Connect at %s" "$CONNECT_URL"
@@ -49,7 +59,7 @@ wait_for_connect() {
 
 list_connectors() {
   curl -sf "$CONNECT_URL/connectors?expand=status" \
-    | jq -r 'to_entries[] | "\(.key)\t\(.value.status.connector.state)\ttasks: \([.value.status.tasks[].state] | join(","))"'
+    | jq -r 'to_entries[] | "\(.key)\t\(.value.status.connector.state)\ttasks: \([.value.status.tasks[].state] | join(","))"' | sort | column -t -s $'\t'
 }
 
 apply_connector() {
@@ -65,7 +75,10 @@ apply_connector() {
 }
 
 apply_all() {
-  for f in "$CONNECTORS_DIR"/*.json; do
+  shopt -s nullglob
+  local files=("$CONNECTORS_DIR"/*.json)
+  [[ ${#files[@]} -gt 0 ]] || { echo "No hand-written connectors in $CONNECTORS_DIR"; return 0; }
+  for f in "${files[@]}"; do
     apply_connector "$(basename "$f" .json)"
   done
 }
@@ -78,6 +91,11 @@ restart_connector() {
   curl -s -X POST "$CONNECT_URL/connectors/$(connector_name "$1")/restart?includeTasks=true&onlyFailed=true" | jq .
 }
 
+pause_connector() {
+  curl -s -X PUT "$CONNECT_URL/connectors/$(connector_name "$1")/$2"
+  echo "$2: $(connector_name "$1")"
+}
+
 delete_connector() {
   local name; name="$(connector_name "$1")"
   echo "Deleting connector: $name"
@@ -85,7 +103,7 @@ delete_connector() {
   echo
 }
 
-need_arg() { [[ -n "${2:-}" ]] || { echo "Usage: kc $1 <file>" >&2; exit 1; }; }
+need_arg() { [[ -n "${2:-}" ]] || { echo "Usage: kc $1 <name>" >&2; exit 1; }; }
 
 cmd="${1:-}"
 case "$cmd" in
@@ -94,6 +112,7 @@ case "$cmd" in
   apply-all|create-all) apply_all ;;
   status) need_arg "$cmd" "${2:-}"; status_connector "$2" ;;
   restart) need_arg "$cmd" "${2:-}"; restart_connector "$2" ;;
+  pause|resume) need_arg "$cmd" "${2:-}"; pause_connector "$2" "$cmd" ;;
   delete) need_arg "$cmd" "${2:-}"; delete_connector "$2" ;;
   wait) wait_for_connect ;;
   *) usage ;;

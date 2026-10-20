@@ -10,6 +10,7 @@ ES       ?= http://localhost:9200
 TOPIC    ?= add-to-cart-events
 MAX      ?= 10
 GROUP    ?= connect-add_to_cart_es_sink
+SINK     ?= add_to_cart
 EVERY    ?= 2
 
 # kafkactl always uses the repo config + context, independent of your global ~/.config/kafkactl
@@ -18,12 +19,12 @@ KAFKACTL := kafkactl -C kafkactl.yml --context ecomm-local
 .PHONY: help up down restart reset ps logs build bootstrap sink produce stream dev \
         connectors sink-status es-count es-indices topics subjects tail urls \
         kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow \
-        es-watch observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
+        es-watch es-search dashboards observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target> [VAR=value]\n\n"} \
 	  /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@printf "\nVariables: EVENTS=$(EVENTS) COUNT=$(COUNT) INTERVAL=$(INTERVAL) TOPIC=$(TOPIC) MAX=$(MAX) GROUP=$(GROUP) EVERY=$(EVERY) SVC=<service>\n\n"
+	@printf "\nVariables: EVENTS=$(EVENTS) COUNT=$(COUNT) INTERVAL=$(INTERVAL) TOPIC=$(TOPIC) MAX=$(MAX) GROUP=$(GROUP) SINK=$(SINK) EVERY=$(EVERY) SVC=<service>\n\n"
 
 ## --- Lifecycle -------------------------------------------------------------
 up: ## Start infra and wait until every service is healthy
@@ -56,15 +57,17 @@ urls: ## Print local endpoints
 	@echo "  Kafka Connect      http://localhost:8083"
 	@echo "  Elasticsearch      http://localhost:9200"
 	@echo "  Kibana             http://localhost:5601"
+	@echo "  Dashboard          http://localhost:5601/app/dashboards#/view/ecomm-insights"
 	@echo ""
 
 ## --- Pipeline --------------------------------------------------------------
 bootstrap: ## Create topics, schemas, ES policies/templates/aliases (idempotent)
 	docker compose run --rm bootstrap
 
-sink: ## Create/update all Kafka Connect connectors
+sink: ## Create/update an ES sink for every event, plus hand-written connectors
 	@bin/kc wait
-	bin/kc apply-all
+	docker compose run --rm bootstrap python connect.py
+	@bin/kc apply-all
 
 produce: ## Send COUNT events: make produce EVENTS=add_to_cart,search COUNT=50
 	bin/stream start $(EVENTS) $(COUNT) $(INTERVAL)
@@ -72,15 +75,18 @@ produce: ## Send COUNT events: make produce EVENTS=add_to_cart,search COUNT=50
 stream: ## Stream EVENTS forever (Ctrl-C to stop)
 	bin/stream start $(EVENTS) 0 $(INTERVAL)
 
-dev: up bootstrap sink ## Full setup: infra + bootstrap + connectors, ready to produce
-	@echo "✅ Ready. Try: make produce && make es-count"
+dev: up bootstrap sink dashboards ## Full setup: infra, topics, ES, sinks and Kibana dashboard
+	@echo "✅ Ready. Try: make observe, then open the Kibana dashboard above"
+
+dashboards: ## Create/overwrite Kibana data views and the Ecomm Insights dashboard
+	docker compose run --rm bootstrap python kibana.py
 
 ## --- Inspect ---------------------------------------------------------------
 connectors: ## List connectors and their state
 	@bin/kc list
 
-sink-status: ## Detailed status (with stack traces) of the add_to_cart sink
-	@bin/kc status add_to_cart
+sink-status: ## Status with stack traces for one sink: make sink-status SINK=refund
+	@bin/kc status $(SINK)
 
 topics: ## List Kafka topics
 	@docker compose exec kafka kafka-topics --bootstrap-server localhost:9092 --list
@@ -98,10 +104,16 @@ es-indices: ## List Elasticsearch indices and aliases
 	@echo ""
 	@curl -s "$(ES)/_cat/aliases?v" | grep -v '\s\.'
 
-es-count: ## Document count per event alias in Elasticsearch
-	@for a in add_to_cart purchase product_view search; do \
-	  printf "  %-14s %s\n" $$a "$$(curl -s $(ES)/$$a/_count | jq -r '.count // .error.type')"; \
+es-count: ## Document count per event alias in Elasticsearch (every alias, auto-discovered)
+	@for a in $$(curl -s "$(ES)/_cat/aliases?h=alias" | grep -v '^\.' | sort -u); do \
+	  printf "  %-18s %s\n" $$a "$$(curl -s $(ES)/$$a/_count | jq -r '.count // .error.type')"; \
 	done
+
+Q ?= *
+es-search: ## Search ALL event types: make es-search Q='reason:damaged OR rating:1' [SIZE=5]
+	@curl -s -G "$(ES)/events/_search" --data-urlencode "q=$(Q)" \
+	  --data-urlencode "size=$(or $(SIZE),5)" --data-urlencode "sort=@timestamp:desc" \
+	  | jq -c '"\(.hits.total.value) hits", (.hits.hits[] | {index: ._index} + (._source | del(.event_id)))'
 
 es-watch: ## Refresh ES doc counts every EVERY seconds (Ctrl-C to stop)
 	@command -v watch >/dev/null || { echo "watch not found: brew install watch" >&2; exit 1; }
@@ -136,13 +148,15 @@ kctl-watch: kctl-check ## Refresh a group's lag every EVERY seconds (Ctrl-C to s
 	  sleep $(EVERY); \
 	done
 
-sink-lag: kctl-check ## Compact lag table for GROUP (fits narrow panes)
-	@$(KAFKACTL) describe consumer-group $(GROUP) --print-members=false \
-	  | awk 'NF>=7 {print $$1, $$2, $$3, $$5, $$7}' \
-	  | sed '1s/.*/TOPIC PART NEWEST COMMITTED LAG/' | column -t
+sink-lag: kctl-check ## Lag of every ES sink in one compact table
+	@{ echo "SINK NEWEST COMMITTED LAG"; \
+	  for g in $$($(KAFKACTL) get consumer-groups -o compact | grep -E '^connect-.*_es_sink$$' | sort); do \
+	    $(KAFKACTL) describe consumer-group $$g --print-members=false \
+	      | awk -v n="$${g#connect-}" 'NR>1 && NF>=7 {nw+=$$3; c+=$$5; l+=$$7} END {sub(/_es_sink$$/, "", n); print n, nw+0, c+0, l+0}'; \
+	  done; } | column -t
 
-sink-lag-watch: kctl-check ## Refresh the compact lag table every EVERY seconds
-	@watch -t -n $(EVERY) 'echo "$(GROUP) (every $(EVERY)s)"; echo; $(MAKE) -s sink-lag GROUP=$(GROUP)'
+sink-lag-watch: kctl-check ## Refresh the sink lag table every EVERY seconds
+	@watch -t -n $(EVERY) 'echo "ES sink lag (every $(EVERY)s)"; echo; $(MAKE) -s sink-lag'
 
 kctl-consume: kctl-check ## Print the last MAX decoded messages: make kctl-consume TOPIC=purchase-events
 	@$(KAFKACTL) consume $(TOPIC) --tail $(MAX) --print-keys --print-timestamps
@@ -151,15 +165,17 @@ kctl-follow: kctl-check ## Stream new decoded messages as they arrive (Ctrl-C to
 	@$(KAFKACTL) consume $(TOPIC) --print-keys --print-timestamps
 
 ## --- Observe the whole pipeline (tmux, watch, lazydocker) -------------------
-observe: ## tmux dashboard of every stage: make observe EVENTS=all INTERVAL=0.2
-	@bin/observe --events $(EVENTS) --interval $(INTERVAL) --topic $(TOPIC) --group $(GROUP) --every $(EVERY)
+observe: ## tmux dashboard of every stage, streaming all events (override: EVENTS=search)
+	@bin/observe $(if $(filter command line environment,$(origin EVENTS)),--events $(EVENTS)) \
+	  --interval $(INTERVAL) --topic $(TOPIC) --every $(EVERY)
 
 observe-kill: ## Close the observe tmux session (stops its producer)
 	@bin/observe kill
 
 connect-errors: ## Follow Kafka Connect logs, ERROR/WARN lines only
 	@echo "Following kafka-connect ERROR/WARN lines. Empty means healthy."
-	@docker compose logs -f --tail=200 connect 2>&1 | grep --line-buffered -E ' (ERROR|WARN) '
+	@docker compose logs -f --tail=200 connect 2>&1 | grep --line-buffered -E ' (ERROR|WARN) ' \
+	  | grep --line-buffered -vE 'ServiceLoader manifests|StatusLogger Reconfiguration failed'
 
 stats: ## Live CPU and memory per container
 	@docker stats --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}'
