@@ -61,6 +61,33 @@ def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval:
         producer.flush()
         logger.info("All messages flushed")
 
+def resolve_events(spec: str) -> list:
+    """
+    Turn an --events value into event classes: a name, a comma-separated list, or "all"
+    (every event the producer can generate). Raises ValueError for unknown or derived events.
+    """
+    names = list(GENERATED_EVENTS) if spec == "all" else [e.strip() for e in spec.split(",") if e.strip()]
+    if not names:
+        raise ValueError("No event types given")
+    selected = []
+    for name in names:
+        if name not in GENERATED_EVENTS:
+            if name in EVENT_REGISTRY:
+                raise ValueError(f"{name} is produced by {EVENT_REGISTRY[name].produced_by}, not by this producer")
+            raise ValueError(f"Unknown event type: {name}. Choose from: {', '.join(GENERATED_EVENTS)}")
+        selected.append(GENERATED_EVENTS[name])
+    return selected
+
+
+def describe_events() -> list[str]:
+    """One line per registered event, for --list."""
+    lines = []
+    for name, cls in EVENT_REGISTRY.items():
+        source = f"produced by {cls.produced_by}" if cls.produced_by else f"weight={cls.weight}"
+        lines.append(f"{name:<18} topic={cls.topic:<26} {source}")
+    return lines
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--events", type=str, help="Comma-separated event types to stream (or 'all')")
@@ -70,20 +97,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.list:
-        for name, cls in EVENT_REGISTRY.items():
-            source = f"produced by {cls.produced_by}" if cls.produced_by else f"weight={cls.weight}"
-            print(f"{name:<18} topic={cls.topic:<26} {source}")
+        print("\n".join(describe_events()))
     elif args.events:
-        names = list(GENERATED_EVENTS) if args.events == "all" else [e.strip() for e in args.events.split(",") if e.strip()]
-        selected_events = []
-        for evt in names:
-            if evt not in GENERATED_EVENTS:
-                if evt in EVENT_REGISTRY:
-                    parser.error(f"{evt} is produced by {EVENT_REGISTRY[evt].produced_by}, not by this producer")
-                parser.error(f"Unknown event type: {evt}. Choose from: {', '.join(GENERATED_EVENTS)}")
-            selected_events.append(EVENT_REGISTRY[evt])
-
-        config = ProducerConfig()
-        stream(selected_events, config, interval=args.interval, limit=args.count)
+        try:
+            selected_events = resolve_events(args.events)
+        except ValueError as e:
+            parser.error(str(e))
+        stream(selected_events, ProducerConfig(), interval=args.interval, limit=args.count)
     else:
         parser.print_help()

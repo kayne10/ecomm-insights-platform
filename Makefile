@@ -26,7 +26,7 @@ KAFKACTL := kafkactl -C kafkactl.yml --context ecomm-local
 .PHONY: help up down restart reset ps logs build bootstrap sink produce stream dev \
         connectors sink-status es-count es-indices topics subjects tail urls \
         kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow \
-        es-watch es-search dashboards flink flink-test flink-format flink-logs flink-status flink-restart observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
+        es-watch es-search dashboards test test-all coverage coverage-open flink flink-test flink-format flink-logs flink-status flink-restart observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target> [VAR=value]\n\n"} \
@@ -191,6 +191,29 @@ stats: ## Live CPU and memory per container
 docker-ui: ## Open lazydocker for this compose project
 	@command -v lazydocker >/dev/null || { echo "lazydocker not found: brew install lazydocker" >&2; exit 1; }
 	@lazydocker
+
+## --- Tests -----------------------------------------------------------------
+VENV := .venv
+PY   := $(VENV)/bin/python
+
+$(VENV)/.installed: requirements-dev.txt apps/producer/requirements.txt apps/bootstrap/requirements.txt
+	python3 -m venv $(VENV)
+	$(PY) -m pip install -q --upgrade pip
+	$(PY) -m pip install -q -r requirements-dev.txt
+	@touch $@
+
+test: $(VENV)/.installed ## Python unit tests (common, bootstrap, producer); no Docker needed
+	$(PY) -m pytest $(ARGS)
+
+test-all: test flink-test ## Python and Java unit tests
+
+coverage: $(VENV)/.installed ## Python tests with coverage: gaps in the terminal, full report in coverage/html
+	$(PY) -m pytest -q --cov --cov-report=term --cov-report=html $(ARGS)
+	@echo "HTML report: coverage/html/index.html  (make coverage-open)"
+
+coverage-open: ## Open the HTML coverage report in your browser
+	@test -f coverage/html/index.html || $(MAKE) --no-print-directory coverage
+	open coverage/html/index.html
 
 ## --- Flink: cart abandonment job (apps/flink-cart-abandonment) -------------
 flink: ## Build (incl. tests) and (re)start the Flink job; needs `make bootstrap` first

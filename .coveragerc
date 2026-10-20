@@ -1,0 +1,26 @@
+# Coverage for the Python code (make coverage). Java coverage lives with the Flink app.
+[run]
+branch = True
+source =
+    common
+    apps/bootstrap/src
+    apps/producer/src
+data_file = coverage/.coverage
+
+[report]
+# Terminal report: only files with gaps, worst first, with the missing lines.
+show_missing = True
+skip_covered = True
+skip_empty = True
+sort = Cover
+precision = 1
+# Fail `make coverage` if total coverage drops below this. Raise it as gaps are closed.
+fail_under = 90
+# CLI entry points are thin wrappers around tested functions.
+exclude_also =
+    if __name__ == .__main__.:
+
+[html]
+directory = coverage/html
+title = Ecomm Insights: Python coverage
+skip_empty = True

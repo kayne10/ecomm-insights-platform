@@ -1,0 +1,5 @@
+# Local unit tests (make test). Runtime deps mirror the app images so imports behave the same.
+-r apps/producer/requirements.txt
+-r apps/bootstrap/requirements.txt
+pytest==8.3.4
+pytest-cov==7.1.0

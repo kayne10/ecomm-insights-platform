@@ -1,0 +1,45 @@
+# Unit tests for every push and pull request. Drives the README "Tests" badge.
+# No services are started: Python tests use in-memory fakes, Java tests use Flink's test harness.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (pytest + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"   # same as the app images
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            apps/*/requirements.txt
+      - run: pip install -r requirements-dev.txt
+      # Fails if coverage drops below fail_under in .coveragerc.
+      - run: python -m pytest --cov --cov-report=term
+
+  java:
+    name: Java (Flink job)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/flink-cart-abandonment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: apps/flink-cart-abandonment/pom.xml
+      # Unit tests and the google-java-format check.
+      - run: mvn -B -ntp verify
