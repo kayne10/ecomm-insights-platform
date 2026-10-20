@@ -16,10 +16,9 @@ ROOT="$(pwd)"
 
 SESSION="ecomm-observe"
 PRODUCER_NAME="ecomm-observe-producer"
-EVENTS="add_to_cart"
+EVENTS="all"
 INTERVAL="0.5"
 TOPIC="add-to-cart-events"
-GROUP="connect-add_to_cart_es_sink"
 EVERY="2"
 PRODUCE=1
 
@@ -36,7 +35,6 @@ usage() {
     -e, --events <list>    Event types to stream: name, comma list, or "all" (default: $EVENTS)
     -i, --interval <sec>   Seconds between produced events (default: $INTERVAL)
     -t, --topic <topic>    Topic shown in the Kafka pane (default: $TOPIC)
-    -g, --group <group>    Consumer group shown in the lag pane (default: $GROUP)
     -n, --no-produce       Don't start the producer; the pane is left at a prompt
         --every <sec>      Refresh rate for lag and ES panes (default: $EVERY)
 
@@ -91,7 +89,6 @@ while [[ $# -gt 0 ]]; do
         -e|--events) EVENTS="$2"; shift 2 ;;
         -i|--interval) INTERVAL="$2"; shift 2 ;;
         -t|--topic) TOPIC="$2"; shift 2 ;;
-        -g|--group) GROUP="$2"; shift 2 ;;
         -n|--no-produce) PRODUCE=0; shift ;;
         --every) EVERY="$2"; shift 2 ;;
         -h|--help|help) usage; exit 0 ;;
@@ -121,7 +118,7 @@ else
     PRODUCER_CMD="echo 'Producer not started. Run: make stream EVENTS=$EVENTS INTERVAL=$INTERVAL'"
 fi
 KAFKA_CMD="make kctl-follow TOPIC=$TOPIC"
-LAG_CMD="make sink-lag-watch GROUP=$GROUP EVERY=$EVERY"
+LAG_CMD="make sink-lag-watch EVERY=$EVERY"
 ES_CMD="make es-watch EVERY=$EVERY"
 ERRORS_CMD="make connect-errors"
 STATS_CMD="make stats"
@@ -145,7 +142,7 @@ P4=$(tmux split-window -v -t "$P2" -c "$ROOT" -P -F '#{pane_id}')
 
 label "$P1" "producer ($EVENTS)"
 label "$P2" "kafka: $TOPIC"
-label "$P3" "sink lag: $GROUP"
+label "$P3" "sink lag (all ES sinks)"
 label "$P4" "elasticsearch doc counts"
 
 run_in "$P1" "$PRODUCER_CMD"

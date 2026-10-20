@@ -1,12 +1,13 @@
 import random
-import uuid
-from datetime import datetime
+from common.events import catalog
 from common.events.event_base import EventBase
 
 
 class AddToCartEvent(EventBase):
     name = "add_to_cart"
     topic = "add-to-cart-events"
+    weight = 3
+    domain = "cart"
 
     fields = [
         {"name": "event_id", "kafka_type": "string", "es_type": "keyword"},
@@ -20,10 +21,10 @@ class AddToCartEvent(EventBase):
     @classmethod
     def generate(cls):
         return {
-            "event_id": str(uuid.uuid4()),
+            "event_id": catalog.new_id(),
             "event_type": cls.name,
-            "user_id": str(uuid.uuid4()),
-            "product_id": f"sku-{random.randint(1000, 9999)}",
+            "user_id": catalog.random_user(),
+            "product_id": catalog.random_sku(),
             "quantity": random.randint(1, 5),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": catalog.now_iso(),
         }

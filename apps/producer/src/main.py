@@ -26,10 +26,13 @@ def stream(event_types, config: ProducerConfig, batch_flush: int = 10, interval:
     producer = Producer(config.as_dict())
     logger.info(f"Starting producer for event types: {event_types}")
 
+    # Weighted pick so a mixed stream looks like real traffic (many views, few refunds).
+    weights = [event_cls.weight for event_cls in event_types]
+
     produced_count = 0
     try:
         while True:
-            event_cls = random.choice(event_types)
+            event_cls = random.choices(event_types, weights=weights)[0]
             payload = event_cls.generate()
             topic = event_cls.topic
 
@@ -67,7 +70,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.list:
-        print("\n".join(EVENT_REGISTRY.keys()))
+        for name, cls in EVENT_REGISTRY.items():
+            print(f"{name:<18} topic={cls.topic:<26} weight={cls.weight}")
     elif args.events:
         names = list(EVENT_REGISTRY) if args.events == "all" else [e.strip() for e in args.events.split(",") if e.strip()]
         selected_events = []

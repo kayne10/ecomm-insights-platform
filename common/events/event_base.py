@@ -10,6 +10,11 @@ class EventBase(ABC):
     name = None
     topic = None
     fields = []  # subclasses override
+    # Relative frequency when a producer streams several event types at once.
+    # e.g. product views are far more common than refunds.
+    weight = 1.0
+    # Business area, used for grouped Elasticsearch search aliases (events-<domain>).
+    domain = "other"
 
     def __init__(self):
         pass
@@ -42,10 +47,17 @@ class EventBase(ABC):
 
     @classmethod
     def to_es_mapping(cls):
-        """Elasticsearch mapping generated from fields list."""
-        return {
-            "properties": {
-                f["name"]: {"type": f["es_type"]}
-                for f in cls.fields
-            }
-        }
+        """
+        Elasticsearch mapping generated from fields list.
+
+        Every event also gets `@timestamp` (filled by the `events-enrich` ingest
+        pipeline) so all event types share one time field for search and Kibana.
+        A field may add `es_fields` for multi-fields, e.g. a keyword copy of a text field.
+        """
+        properties = {"@timestamp": {"type": "date"}}
+        for f in cls.fields:
+            prop = {"type": f["es_type"]}
+            if "es_fields" in f:
+                prop["fields"] = f["es_fields"]
+            properties[f["name"]] = prop
+        return {"properties": properties}
