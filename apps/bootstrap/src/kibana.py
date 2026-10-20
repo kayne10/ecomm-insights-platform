@@ -241,11 +241,43 @@ def panels():
         ]),
         count("Events"), color=BLUE, value_labels=True)))
 
-    # Row 3: money
-    p.append(("revenue-over-time", (0, 19, 24, 12), xy(
+    # Rows 3-4: cart abandonment, detected by the Flink job (apps/flink-cart-abandonment)
+    abandoned = is_event("cart_abandoned")
+    p.append(("kpi-abandoned-value", (0, 19, 12, 6), kpi(
+        "Abandoned cart value", metric("sum", "cart_value", "Abandoned value", abandoned, USD),
+        PINK, "left in carts")))
+    p.append(("kpi-abandonment-rate", (12, 19, 12, 6), kpi_columns(
+        "Abandonment rate",
+        ratio_formula("Abandonment rate", 'event_type : "cart_abandoned"',
+                      'event_type : "checkout_started"', "abandon"),
+        PURPLE, "abandoned carts / checkouts")))
+    p.append(("kpi-abandoned-carts", (0, 25, 12, 6), kpi(
+        "Abandoned carts", count("Abandoned carts", abandoned), PINK, "detected by Flink")))
+    p.append(("kpi-avg-abandoned", (12, 25, 12, 6), kpi(
+        "Avg abandoned cart", metric("average", "cart_value", "Avg abandoned cart", abandoned, USD),
+        BLUE, "value per abandoned cart")))
+    p.append(("checkout-outcomes", (24, 19, 24, 12), xy(
+        "Checkouts: purchased vs abandoned", "bar_stacked", date_histogram(), count("Carts"),
+        split=filters("Outcome", [
+            ("Purchased", kql('event_type : "purchase" and cart_id : *')),
+            ("Abandoned", abandoned),
+        ]))))
+    p.append(("abandoned-products", (0, 31, 24, 12), xy(
+        "Most abandoned products", "bar_horizontal",
+        terms("product_ids", "Product", "y", size=8), count("Abandoned carts", abandoned),
+        color=PINK)))
+    p.append(("abandoning-customers", (24, 31, 24, 12), table(
+        "Customers with the most abandoned value",
+        {"customer": terms("user_id", "Customer", "value", size=10),
+         "value": metric("sum", "cart_value", "Abandoned value", abandoned, USD),
+         "carts": count("Abandoned carts", abandoned)},
+        sort_by="value")))
+
+    # Row 5: money
+    p.append(("revenue-over-time", (0, 43, 24, 12), xy(
         "Revenue over time", "bar", date_histogram(),
         metric("sum", "amount", "Revenue", purchase, USD_SHORT), color=GREEN)))
-    p.append(("top-customers", (24, 19, 24, 12), table(
+    p.append(("top-customers", (24, 43, 24, 12), table(
         "Top customers by spend",
         {"customer": terms("user_id", "Customer", "spend", size=10),
          "spend": metric("sum", "amount", "Total spend", purchase, USD),
@@ -255,26 +287,26 @@ def panels():
          "aov": metric("average", "amount", "Avg order", purchase, USD)},
         sort_by="spend")))
 
-    # Row 4: why customers leave or love it
-    p.append(("refund-reasons", (0, 31, 16, 12), donut(
+    # Row 6: why customers leave or love it
+    p.append(("refund-reasons", (0, 55, 16, 12), donut(
         "Refund reasons", terms("reason", "Reason", "value", size=10),
         count("Refunds", refund))))
-    p.append(("ratings", (16, 31, 16, 12), xy(
+    p.append(("ratings", (16, 55, 16, 12), xy(
         "Review ratings", "bar", numeric_terms("rating", "Stars", order_desc=True),
         count("Reviews", review), color=ORANGE)))
-    p.append(("search-terms", (32, 31, 16, 12), tagcloud(
+    p.append(("search-terms", (32, 55, 16, 12), tagcloud(
         "Top searches", terms("query.keyword", "Search term", "value", size=12),
         count("Searches", is_event("search")))))
 
-    # Row 5: product and category insights
-    p.append(("viewed-categories", (0, 43, 16, 12), donut(
+    # Row 7: product and category insights
+    p.append(("viewed-categories", (0, 67, 16, 12), donut(
         "Product views by category", terms("category", "Category", "value", size=10),
         count("Views", is_event("product_view")))))
-    p.append(("top-carted", (16, 43, 16, 12), xy(
+    p.append(("top-carted", (16, 67, 16, 12), xy(
         "Most added-to-cart products", "bar_horizontal",
         terms("product_id", "Product", "y", size=8), count("Cart adds", is_event("add_to_cart")),
         color=PURPLE)))
-    p.append(("refunded-categories", (32, 43, 16, 12), xy(
+    p.append(("refunded-categories", (32, 67, 16, 12), xy(
         "Refunded revenue by category", "bar_horizontal",
         terms("category", "Category", "y", size=8),
         metric("sum", "amount", "Refunded", refund, USD), color=RED)))

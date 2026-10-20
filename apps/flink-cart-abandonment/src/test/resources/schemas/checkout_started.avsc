@@ -1,0 +1,45 @@
+{
+  "type": "record",
+  "name": "checkout_started",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "event_type",
+      "type": "string"
+    },
+    {
+      "name": "user_id",
+      "type": "string"
+    },
+    {
+      "name": "cart_id",
+      "type": "string"
+    },
+    {
+      "name": "product_ids",
+      "type": {
+        "type": "array",
+        "items": "string"
+      }
+    },
+    {
+      "name": "item_count",
+      "type": "int"
+    },
+    {
+      "name": "cart_value",
+      "type": "double"
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    },
+    {
+      "name": "timestamp",
+      "type": "string"
+    }
+  ]
+}

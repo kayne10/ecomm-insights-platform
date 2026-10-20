@@ -1,0 +1,53 @@
+{
+  "type": "record",
+  "name": "cart_abandoned",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "event_type",
+      "type": "string"
+    },
+    {
+      "name": "user_id",
+      "type": "string"
+    },
+    {
+      "name": "cart_id",
+      "type": "string"
+    },
+    {
+      "name": "product_ids",
+      "type": {
+        "type": "array",
+        "items": "string"
+      }
+    },
+    {
+      "name": "item_count",
+      "type": "int"
+    },
+    {
+      "name": "cart_value",
+      "type": "double"
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    },
+    {
+      "name": "checkout_at",
+      "type": "string"
+    },
+    {
+      "name": "timeout_seconds",
+      "type": "long"
+    },
+    {
+      "name": "timestamp",
+      "type": "string"
+    }
+  ]
+}

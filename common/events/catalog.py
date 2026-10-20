@@ -5,6 +5,7 @@ Using a fixed pool (instead of a fresh uuid per event) lets Elasticsearch
 aggregations answer questions like "top customers" or "most refunded product".
 """
 import random
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -53,3 +54,29 @@ def random_sku() -> str:
 
 def product(sku: str) -> dict:
     return PRODUCTS[sku]
+
+
+# --- Open carts --------------------------------------------------------------
+# checkout_started opens a cart and purchase completes one, so the two events share
+# a cart_id the way a real checkout flow does. Carts that are never completed are
+# what the Flink job reports as abandoned. State is per producer process.
+
+# Purchases only complete carts younger than this. Keep it well below the Flink job's
+# abandonment timeout (ABANDONMENT_TIMEOUT, 2 minutes locally) so a cart is never
+# reported abandoned and then purchased.
+CART_MAX_AGE_SECONDS = 45
+_open_carts = {}  # cart_id -> (opened_at_monotonic, cart)
+
+
+def open_cart(cart: dict) -> None:
+    _open_carts[cart["cart_id"]] = (time.monotonic(), cart)
+
+
+def take_open_cart() -> dict | None:
+    """Remove and return a random recent open cart, or None if there isn't one."""
+    cutoff = time.monotonic() - CART_MAX_AGE_SECONDS
+    for cart_id in [c for c, (opened, _) in _open_carts.items() if opened < cutoff]:
+        del _open_carts[cart_id]  # too old: it will be reported as abandoned
+    if not _open_carts:
+        return None
+    return _open_carts.pop(random.choice(list(_open_carts)))[1]

@@ -7,7 +7,7 @@ from confluent_kafka import Producer
 from confluent_kafka.serialization import MessageField, SerializationContext
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
-from common.registry import EVENT_REGISTRY
+from common.registry import EVENT_REGISTRY, GENERATED_EVENTS
 from common.settings import SchemaRegistryConfig
 from settings import ProducerConfig, setup_logger
 
@@ -71,13 +71,16 @@ if __name__ == "__main__":
 
     if args.list:
         for name, cls in EVENT_REGISTRY.items():
-            print(f"{name:<18} topic={cls.topic:<26} weight={cls.weight}")
+            source = f"produced by {cls.produced_by}" if cls.produced_by else f"weight={cls.weight}"
+            print(f"{name:<18} topic={cls.topic:<26} {source}")
     elif args.events:
-        names = list(EVENT_REGISTRY) if args.events == "all" else [e.strip() for e in args.events.split(",") if e.strip()]
+        names = list(GENERATED_EVENTS) if args.events == "all" else [e.strip() for e in args.events.split(",") if e.strip()]
         selected_events = []
         for evt in names:
-            if evt not in EVENT_REGISTRY:
-                parser.error(f"Unknown event type: {evt}. Choose from: {', '.join(EVENT_REGISTRY)}")
+            if evt not in GENERATED_EVENTS:
+                if evt in EVENT_REGISTRY:
+                    parser.error(f"{evt} is produced by {EVENT_REGISTRY[evt].produced_by}, not by this producer")
+                parser.error(f"Unknown event type: {evt}. Choose from: {', '.join(GENERATED_EVENTS)}")
             selected_events.append(EVENT_REGISTRY[evt])
 
         config = ProducerConfig()

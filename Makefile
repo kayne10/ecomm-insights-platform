@@ -13,13 +13,20 @@ GROUP    ?= connect-add_to_cart_es_sink
 SINK     ?= add_to_cart
 EVERY    ?= 2
 
+# Include profiled services (flink, tools) when stopping or listing the stack.
+ALL_PROFILES := --profile flink --profile tools
+
+FLINK_DIR   := apps/flink-cart-abandonment
+MAVEN_IMAGE := maven:3.9.11-eclipse-temurin-17
+FLINK_UI    := http://localhost:8082
+
 # kafkactl always uses the repo config + context, independent of your global ~/.config/kafkactl
 KAFKACTL := kafkactl -C kafkactl.yml --context ecomm-local
 
 .PHONY: help up down restart reset ps logs build bootstrap sink produce stream dev \
         connectors sink-status es-count es-indices topics subjects tail urls \
         kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow \
-        es-watch es-search dashboards observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
+        es-watch es-search dashboards flink flink-test flink-format flink-logs flink-status flink-restart observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target> [VAR=value]\n\n"} \
@@ -32,20 +39,20 @@ up: ## Start infra and wait until every service is healthy
 	@$(MAKE) --no-print-directory urls
 
 down: ## Stop the stack (keeps data volumes)
-	docker compose down
+	docker compose $(ALL_PROFILES) down
 
 restart: ## Restart one service: make restart SVC=connect
 	docker compose restart $(SVC)
 
 reset: ## Destroy containers AND volumes (fresh Kafka + ES), then bring infra back up
-	docker compose down -v --remove-orphans
+	docker compose $(ALL_PROFILES) down -v --remove-orphans
 	@$(MAKE) --no-print-directory up
 
-build: ## Rebuild the bootstrap/producer images (after requirements.txt changes)
-	docker compose --profile tools build
+build: ## Rebuild the bootstrap/producer/flink images (after dependency or Java changes)
+	docker compose $(ALL_PROFILES) build
 
 ps: ## Show service status and health
-	docker compose ps -a
+	docker compose $(ALL_PROFILES) ps -a
 
 logs: ## Tail logs: make logs SVC=connect (all services if SVC unset)
 	docker compose logs -f --tail=100 $(SVC)
@@ -57,6 +64,7 @@ urls: ## Print local endpoints
 	@echo "  Kafka Connect      http://localhost:8083"
 	@echo "  Elasticsearch      http://localhost:9200"
 	@echo "  Kibana             http://localhost:5601"
+	@echo "  Flink UI           $(FLINK_UI)"
 	@echo "  Dashboard          http://localhost:5601/app/dashboards#/view/ecomm-insights"
 	@echo ""
 
@@ -75,7 +83,7 @@ produce: ## Send COUNT events: make produce EVENTS=add_to_cart,search COUNT=50
 stream: ## Stream EVENTS forever (Ctrl-C to stop)
 	bin/stream start $(EVENTS) 0 $(INTERVAL)
 
-dev: up bootstrap sink dashboards ## Full setup: infra, topics, ES, sinks and Kibana dashboard
+dev: up bootstrap sink flink dashboards ## Full setup: infra, topics, ES, sinks, Flink job, Kibana dashboard
 	@echo "✅ Ready. Try: make observe, then open the Kibana dashboard above"
 
 dashboards: ## Create/overwrite Kibana data views and the Ecomm Insights dashboard
@@ -183,3 +191,29 @@ stats: ## Live CPU and memory per container
 docker-ui: ## Open lazydocker for this compose project
 	@command -v lazydocker >/dev/null || { echo "lazydocker not found: brew install lazydocker" >&2; exit 1; }
 	@lazydocker
+
+## --- Flink: cart abandonment job (apps/flink-cart-abandonment) -------------
+flink: ## Build (incl. tests) and (re)start the Flink job; needs `make bootstrap` first
+	docker compose --profile flink up -d --build --wait flink-jobmanager flink-taskmanager
+	@echo "Flink UI: $(FLINK_UI)"
+
+flink-test: ## Run the job's unit tests and format check in a Maven container (no local JDK needed)
+	docker run --rm -v "$(CURDIR)/$(FLINK_DIR)":/app -v ecomm-m2:/root/.m2 -w /app $(MAVEN_IMAGE) mvn -B -ntp verify
+
+flink-format: ## Auto-format the Java code (google-java-format, AOSP style)
+	docker run --rm -v "$(CURDIR)/$(FLINK_DIR)":/app -v ecomm-m2:/root/.m2 -w /app $(MAVEN_IMAGE) mvn -B -ntp -q spotless:apply
+
+flink-logs: ## Follow JobManager and TaskManager logs
+	docker compose --profile flink logs -f --tail=100 flink-jobmanager flink-taskmanager
+
+flink-status: ## Job state plus abandoned/converted cart counters
+	@curl -sf $(FLINK_UI)/jobs/overview | jq -r '.jobs[] | "\(.name)  \(.state)  running \((.duration / 1000 | floor))s"' \
+	  || { echo "Flink is not running. Start it with: make flink" >&2; exit 1; }
+	@job=$$(curl -s $(FLINK_UI)/jobs/overview | jq -r '.jobs[] | select(.state=="RUNNING") | .jid' | head -1); \
+	[ -n "$$job" ] || exit 0; \
+	v=$$(curl -s $(FLINK_UI)/jobs/$$job | jq -r '.vertices[] | select(.name | test("detect")) | .id'); \
+	curl -s "$(FLINK_UI)/jobs/$$job/vertices/$$v/subtasks/metrics?get=$$(echo cartsAbandoned cartsConverted checkoutsAfterPurchase | sed 's/[a-zA-Z]*/detect_abandoned_carts.&/g; s/ /,/g')" \
+	  | jq -r '.[] | "  \(.id | split(".") | last): \(.sum)"'
+
+flink-restart: ## Restart the Flink containers (job resumes from committed Kafka offsets)
+	docker compose --profile flink restart flink-jobmanager flink-taskmanager

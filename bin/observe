@@ -4,9 +4,10 @@
 #   window "pipeline"           window "health"              window "docker"
 #  +------------+------------+  +-------------------------+  +----------------+
 #  | 1 producer | 2 kafka    |  | connect ERROR/WARN logs |  |   lazydocker   |
-#  +------------+------------+  +-------------------------+  |                |
-#  | 3 sink lag | 4 ES count |  | docker stats            |  |                |
-#  +------------+------------+  +-------------------------+  +----------------+
+#  +------------+------------+  +------------+------------+  |                |
+#  | 3 sink lag | 4 ES count |  | flink job  | docker     |  |                |
+#  +------------+------------+  |            | stats      |  |                |
+#                               +------------+------------+  +----------------+
 #
 # Read it left-to-right, top-to-bottom: an event should appear in 1, then 2,
 # lag in 3 should bounce back to 0, then the count in 4 should rise.
@@ -122,6 +123,7 @@ LAG_CMD="make sink-lag-watch EVERY=$EVERY"
 ES_CMD="make es-watch EVERY=$EVERY"
 ERRORS_CMD="make connect-errors"
 STATS_CMD="make stats"
+FLINK_CMD="watch -t -n $EVERY 'make -s flink-status 2>&1'"
 
 # Create a pane running a command in an interactive shell, so Ctrl-C drops you
 # to a prompt in the repo instead of closing the pane.
@@ -153,11 +155,14 @@ run_in "$P4" "$ES_CMD"
 # Window 2: health (connect errors on top, container resources below)
 tmux new-window -t "$SESSION" -n health -c "$ROOT"
 H1=$(tmux display-message -p -t "$SESSION:health" '#{pane_id}')
-H2=$(tmux split-window -v -t "$H1" -c "$ROOT" -l 12 -P -F '#{pane_id}')
+H2=$(tmux split-window -v -t "$H1" -c "$ROOT" -l 14 -P -F '#{pane_id}')
+H3=$(tmux split-window -h -t "$H2" -c "$ROOT" -P -F '#{pane_id}')
 label "$H1" "kafka-connect ERROR/WARN"
-label "$H2" "container resources"
+label "$H2" "flink cart abandonment job"
+label "$H3" "container resources"
 run_in "$H1" "$ERRORS_CMD"
-run_in "$H2" "$STATS_CMD"
+run_in "$H2" "$FLINK_CMD"
+run_in "$H3" "$STATS_CMD"
 
 # Window 3: lazydocker for container logs, restarts and exec (optional tool)
 tmux new-window -t "$SESSION" -n docker -c "$ROOT"

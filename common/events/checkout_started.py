@@ -24,7 +24,7 @@ class CheckoutStartedEvent(EventBase):
     @classmethod
     def generate(cls):
         skus = [catalog.random_sku() for _ in range(random.randint(1, 5))]
-        return {
+        event = {
             "event_id": catalog.new_id(),
             "event_type": cls.name,
             "user_id": catalog.random_user(),
@@ -35,3 +35,5 @@ class CheckoutStartedEvent(EventBase):
             "currency": "USD",
             "timestamp": catalog.now_iso(),
         }
+        catalog.open_cart(event)
+        return event

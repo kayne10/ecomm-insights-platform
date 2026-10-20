@@ -15,15 +15,20 @@ class EventBase(ABC):
     weight = 1.0
     # Business area, used for grouped Elasticsearch search aliases (events-<domain>).
     domain = "other"
+    # Set to the producing system (e.g. "flink") for events derived from other events.
+    # The fake-data producer never generates these; bootstrap still creates their topic,
+    # schema, Elasticsearch resources and sink.
+    produced_by = None
 
     def __init__(self):
         pass
 
+    @classmethod
     def generate(cls):
         """
         Subclasses implement fake event generation
         """
-        pass
+        raise NotImplementedError(f"{cls.__name__} is produced by {cls.produced_by}, not generated")
 
     @classmethod
     def get_index_name(cls):
@@ -38,12 +43,18 @@ class EventBase(ABC):
         schema = {
             "type": "record",
             "name": cls.name,
-            "fields": [
-                {"name": f["name"], "type": f["kafka_type"]}
-                for f in cls.fields
-            ],
+            "fields": [cls._avro_field(f) for f in cls.fields],
         }
         return json.dumps(schema, indent=2)
+
+    @staticmethod
+    def _avro_field(f):
+        """A field may set `kafka_default` (even None) to make it optional, which keeps
+        a schema change backward compatible in Schema Registry."""
+        field = {"name": f["name"], "type": f["kafka_type"]}
+        if "kafka_default" in f:
+            field["default"] = f["kafka_default"]
+        return field
 
     @classmethod
     def to_es_mapping(cls):
