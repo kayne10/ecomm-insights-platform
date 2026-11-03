@@ -1,0 +1,25 @@
+# Scrape config for the local stack. Targets that aren't running (e.g. Flink when the
+# "flink" profile is down) just show as DOWN at http://localhost:9090/targets.
+global:
+  scrape_interval: 5s        # short, so dashboards react quickly while you stream events
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Topic offsets (throughput) and consumer group lag (Connect sinks, Flink).
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  # Indexing rate, documents and JVM of Elasticsearch.
+  - job_name: elasticsearch
+    static_configs:
+      - targets: ["elasticsearch-exporter:9114"]
+
+  # Flink's built-in Prometheus reporter (metrics.reporter.prom in docker-compose.yml).
+  - job_name: flink
+    static_configs:
+      - targets: ["flink-jobmanager:9249", "flink-taskmanager:9249"]
