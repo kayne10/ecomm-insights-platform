@@ -26,7 +26,7 @@ KAFKACTL := kafkactl -C kafkactl.yml --context ecomm-local
 .PHONY: help up down restart reset ps logs build bootstrap sink produce stream dev \
         connectors sink-status es-count es-indices topics subjects tail urls \
         kctl-check kctl-topics kctl-topic kctl-groups kctl-group kctl-lag kctl-watch kctl-consume kctl-follow \
-        es-watch es-search dashboards test test-all coverage coverage-open flink flink-test flink-format flink-logs flink-status flink-restart observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
+        es-watch es-search dashboards grafana grafana-dashboard prometheus-targets test test-all coverage coverage-open flink flink-test flink-format flink-logs flink-status flink-restart observe observe-kill connect-errors stats docker-ui sink-lag sink-lag-watch
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target> [VAR=value]\n\n"} \
@@ -65,6 +65,8 @@ urls: ## Print local endpoints
 	@echo "  Elasticsearch      http://localhost:9200"
 	@echo "  Kibana             http://localhost:5601"
 	@echo "  Flink UI           $(FLINK_UI)"
+	@echo "  Grafana            http://localhost:3000  (dashboard: Streaming Pipeline, admin/admin to edit)"
+	@echo "  Prometheus         http://localhost:9090"
 	@echo "  Dashboard          http://localhost:5601/app/dashboards#/view/ecomm-insights"
 	@echo ""
 
@@ -191,6 +193,16 @@ stats: ## Live CPU and memory per container
 docker-ui: ## Open lazydocker for this compose project
 	@command -v lazydocker >/dev/null || { echo "lazydocker not found: brew install lazydocker" >&2; exit 1; }
 	@lazydocker
+
+## --- Grafana / Prometheus --------------------------------------------------
+grafana: ## Open the Streaming Pipeline dashboard in Grafana
+	open "http://localhost:3000/d/streaming-pipeline/streaming-pipeline"
+
+grafana-dashboard: ## Regenerate the Grafana dashboard JSON from monitoring/grafana/generate_dashboard.py
+	python3 monitoring/grafana/generate_dashboard.py
+
+prometheus-targets: ## Show Prometheus scrape targets and their health
+	@curl -s localhost:9090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.labels.job)\t\(.health)\t\(.scrapeUrl)\t\(.lastError)"' | column -t -s $$'\t'
 
 ## --- Tests -----------------------------------------------------------------
 VENV := .venv

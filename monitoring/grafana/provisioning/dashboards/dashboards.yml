@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: ecomm
+    folder: Ecomm Insights
+    type: file
+    # UI edits are allowed but not saved back to the file; export the JSON to keep them.
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
